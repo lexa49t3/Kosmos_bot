@@ -1,10 +1,9 @@
-# web.py
-from flask import Flask, render_template, request, redirect, url_for
-import sqlite3
-from datetime import datetime
-import os
+# web.py — исправлен под PostgreSQL
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from datetime import datetime
+import os
 
 app = Flask(__name__, template_folder="templates")
 
@@ -12,72 +11,78 @@ def get_db():
     url = os.getenv("DATABASE_URL")
     if not url:
         raise ValueError("❌ DATABASE_URL не установлен!")
+    # Railway даёт URL с `postgresql://`, но psycopg2 требует `postgres://`
+    url = url.replace("postgresql://", "postgres://")
     conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
-    return connnn
+    return conn
 
 def init_db():
     with get_db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS couriers (
-                tg_id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS queue (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tg_id INTEGER,
-                join_time TEXT,
-                FOREIGN KEY(tg_id) REFERENCES couriers(tg_id)
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                courier_tg_id INTEGER,
-                assigned_at TEXT,
-                completed_at TEXT,
-                FOREIGN KEY(courier_tg_id) REFERENCES couriers(tg_id)
-            )
-        """)
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS couriers (
+                    tg_id BIGINT PRIMARY KEY,
+                    name TEXT NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS queue (
+                    id SERIAL PRIMARY KEY,
+                    tg_id BIGINT NOT NULL,
+                    join_time TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id SERIAL PRIMARY KEY,
+                    courier_tg_id BIGINT NOT NULL,
+                    assigned_at TIMESTAMPTZ DEFAULT NOW(),
+                    completed_at TIMESTAMPTZ,
+                    FOREIGN KEY (courier_tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                )
+            """)
+            conn.commit()
 
-# Создаём БД при старте
+# Инициализируем БД
 init_db()
-
-from flask import jsonify
 
 @app.route("/api/queue")
 def api_queue():
-    db = get_db()
-    rows = db.execute('''
-        SELECT c.name
-        FROM queue q
-        JOIN couriers c ON q.tg_id = c.tg_id
-        ORDER BY q.join_time
-    ''').fetchall()
-    # Конвертируем в список словарей
-    return jsonify([{"name": r["name"]} for r in rows])
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.name
+                FROM queue q
+                JOIN couriers c ON q.tg_id = c.tg_id
+                ORDER BY q.join_time
+            """)
+            rows = cur.fetchall()
+    return jsonify([{"name": row["name"]} for row in rows])
 
 @app.route("/", methods=["GET"])
 def index():
-    db = get_db()
-    queue = db.execute('''
-        SELECT c.name, q.tg_id, q.join_time
-        FROM queue q
-        JOIN couriers c ON q.tg_id = c.tg_id
-        ORDER BY q.join_time
-    ''').fetchall()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.name, q.tg_id, q.join_time
+                FROM queue q
+                JOIN couriers c ON q.tg_id = c.tg_id
+                ORDER BY q.join_time
+            """)
+            queue = cur.fetchall()
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    stats = db.execute('''
-        SELECT c.name,
-               COUNT(o.id) as total,
-               SUM(CASE WHEN date(o.assigned_at) = ? THEN 1 ELSE 0 END) as today
-        FROM couriers c
-        LEFT JOIN orders o ON c.tg_id = o.courier_tg_id
-        GROUP BY c.tg_id, c.name
-        ORDER BY total DESC
-    ''', (today,)).fetchall()
+            today = datetime.now().strftime("%Y-%m-%d")
+            cur.execute("""
+                SELECT c.name,
+                       COUNT(o.id) AS total,
+                       SUM(CASE WHEN DATE(o.assigned_at) = %s THEN 1 ELSE 0 END) AS today
+                FROM couriers c
+                LEFT JOIN orders o ON c.tg_id = o.courier_tg_id
+                GROUP BY c.tg_id, c.name
+                ORDER BY total DESC
+            """, (today,))
+            stats = cur.fetchall()
 
     return render_template("index.html", queue=queue, stats=stats)
 
@@ -85,13 +90,14 @@ def index():
 def assign_order():
     tg_id = request.form.get("tg_id")
     if tg_id:
-        db = get_db()
-        db.execute(
-            "INSERT INTO orders (courier_tg_id, assigned_at) VALUES (?, ?)",
-            (tg_id, datetime.now().isoformat())
-        )
-        db.execute("DELETE FROM queue WHERE tg_id = ?", (tg_id,))
-        db.commit()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO orders (courier_tg_id) VALUES (%s)",
+                    (tg_id,)
+                )
+                cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,))
+                conn.commit()
     return redirect(url_for("index"))
 
 @app.route("/cashier")
@@ -105,9 +111,3 @@ def refresh():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
-
-
-
-
-

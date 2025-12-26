@@ -1,0 +1,147 @@
+Алексей Сергеевич, [26.12.2025 14:25]
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>👨‍💻 Касса — Очередь курьеров</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f5;
+            padding: 15px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: #d32f2f;
+            color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-size: 1.6rem;
+            font-weight: 600;
+        }
+        .time {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-top: 4px;
+        }
+        .queue-list {
+            list-style: none;
+        }
+        .queue-item {
+            background: white;
+            margin-bottom: 12px;
+            padding: 16px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: flex;
+            align-items: center;
+            font-size: 1.3rem;
+            font-weight: 500;
+        }
+        .number {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            background: #e57373;
+            color: white;
+            border-radius: 50%;
+            margin-right: 16px;
+            font-size: 1.4rem;
+            flex-shrink: 0;
+        }
+        .name {
+            flex-grow: 1;
+        }
+        .empty {
+            text-align: center;
+            color: #757575;
+            font-size: 1.2rem;
+            padding: 40px 20px;
+        }
+        .last-update {
+            text-align: center;
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Касса — Очередь курьеров</h1>
+            <div class="time" id="current-time">—</div>
+        </header>
+
+        <ul class="queue-list" id="queue-list">
+            <!-- Сюда подгрузится очередь -->
+        </ul>
+
+        <div class="last-update">
+            Обновлено: <span id="update-time">—</span>
+        </div>
+    </div>
+
+    <script>
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = 
+                now.toLocaleTimeString('ru-RU', { hour12: false });
+        }
+
+        function updateQueue() {
+            fetch('/api/queue')
+                .then(response => response.json())
+                .then(data => {
+                    const list = document.getElementById('queue-list');
+                    const updateTimeEl = document.getElementById('update-time');
+                    
+                    if (data.length === 0) {
+                        list.innerHTML = '<li class="empty">📭 Очередь пуста</li>';
+                    } else {
+                        list.innerHTML = data.map((item, index) => 
+                            <li class="queue-item">
+                                <div class="number">${index + 1}</div>
+                                <div class="name">${item.name}</div>
+                            </li>
+                        ).join('');
+                    }
+
+                    const now = new Date();
+                    updateTimeEl.textContent = now.toLocaleTimeString('ru-RU', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                })
+                .catch(err => {
+                    console.error('Ошибка загрузки:', err);
+                });
+        }
+
+Алексей Сергеевич, [26.12.2025 14:25]
+// Обновляем сразу при загрузке
+        updateTime();
+        updateQueue();
+
+        // Обновляем время каждую секунду
+        setInterval(updateTime, 1000);
+
+        // Обновляем очередь каждые 5 секунд
+        setInterval(updateQueue, 5000);
+    </script>
+</body>
+</html>

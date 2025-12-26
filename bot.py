@@ -75,7 +75,7 @@ async def start(m: Message):
         await m.answer(
             "🚴 Добро пожаловать!\n\n"
             "📌 Сначала зарегистрируйся:\n"
-            "`/регистрация Имя`\n\n"
+            "`/регистрация Имя Фамилия`\n\n"
             "Пример: `/регистрация Иван`",
             parse_mode="Markdown"
         )
@@ -84,7 +84,7 @@ async def start(m: Message):
 async def register(m: Message):
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
-        await m.answer("📌 Пример: `/регистрация Иван`", parse_mode="Markdown")
+        await m.answer("📌 Пример: `/регистрация Иван Иванов`", parse_mode="Markdown")
         return
     name = parts[1].strip()
     tg_id = m.from_user.id
@@ -99,7 +99,7 @@ async def register(m: Message):
 async def help_cmd(m: Message):
     await m.answer(
         "ℹ️ *Справка по боту*\n\n"
-        "🔹 `/регистрация Имя` — один раз в начале\n"
+        "🔹 `/регистрация Имя Фамилия` — один раз в начале\n"
         "🔹 `✅ Встать` — встать в очередь\n"
         "🔹 `🚪 Выйти` — покинуть очередь\n\n"
         "💡 После регистрации нажми /start — появятся кнопки.",
@@ -113,7 +113,7 @@ async def join_btn(c: CallbackQuery):
     with get_db() as conn:
         user = conn.execute("SELECT name FROM couriers WHERE tg_id = ?", (tg_id,)).fetchone()
         if not user:
-            await c.answer("⛔ Зарегистрируйся: /регистрация Имя", show_alert=True)
+            await c.answer("⛔ Зарегистрируйся: /регистрация Имя Фамилия", show_alert=True)
             return
 
         # ❗ Проверка: уже в очереди?
@@ -144,4 +144,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 

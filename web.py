@@ -7,7 +7,7 @@ import os
 app = Flask(__name__)
 
 def get_db():
-    conn = sqlite3.connect("couriers.db")
+    conn = sqlite3.connect("/tmp/couriers.db")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -112,3 +112,4 @@ def index():
     
 
     return render_template_string(HTML, queue=queue, stats=stats)
+

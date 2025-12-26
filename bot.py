@@ -76,7 +76,7 @@ async def start(m: Message):
             "🚴 Добро пожаловать!\n\n"
             "📌 Сначала зарегистрируйся:\n"
             "`/регистрация Имя Фамилия`\n\n"
-            "Пример: `/регистрация Иван`",
+            "Пример: `/регистрация Иван Затеев`",
             parse_mode="Markdown"
         )
 
@@ -84,7 +84,7 @@ async def start(m: Message):
 async def register(m: Message):
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
-        await m.answer("📌 Пример: `/регистрация Иван Иванов`", parse_mode="Markdown")
+        await m.answer("📌 Пример: `/регистрация Иван Затеев`", parse_mode="Markdown")
         return
     name = parts[1].strip()
     tg_id = m.from_user.id
@@ -144,5 +144,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 

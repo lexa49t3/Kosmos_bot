@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Получаем токен из переменной окружения (Railway будет подставлять его)
 import os
@@ -75,10 +76,74 @@ def assign_order(tg_id):
                      (tg_id, datetime.now().isoformat()))
         conn.execute("DELETE FROM queue WHERE tg_id = ?", (tg_id,))
 
+@dp.callback_query(lambda c: c.data == "join")
+async def join_btn(c: types.CallbackQuery):
+    tg_id = c.from_user.id
+    with get_db() as conn:
+        user = conn.execute("SELECT name FROM couriers WHERE tg_id = ?", (tg_id,)).fetchone()
+        if not user:
+            await c.answer("⛔ Зарегистрируйся сначала: /регистрация Имя", show_alert=True)
+            return
+
+    add_to_queue(tg_id)
+    pos = get_queue_position(tg_id)
+    await c.answer(f"✅ Ты №{pos} в очереди!", show_alert=True)
+    # Обновим клавиатуру
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+        [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help")]
+    ])
+    await c.message.edit_reply_markup(reply_markup=kb)
+
+@dp.callback_query(lambda c: c.data == "leave")
+async def leave_btn(c: types.CallbackQuery):
+    tg_id = c.from_user.id
+    with get_db() as conn:
+        changed = conn.execute("DELETE FROM queue WHERE tg_id = ?", (tg_id,)).rowcount
+    text = "🚪 Ты вышел из очереди." if changed else "📭 Тебя не было в очереди."
+    await c.answer(text, show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "help")
+async def help_btn(c: types.CallbackQuery):
+
+@app.route("/api/queue")
+def api_queue():
+    db = get_db()
+    queue = db.execute('''
+        SELECT c.name
+        FROM queue q
+        JOIN couriers c ON q.tg_id = c.tg_id
+        ORDER BY q.join_time
+    ''').fetchall()
+    result = [{"name": row["name"]} for row in queue]
+    print("🔍 API /api/queue →", result)  # ← будет в логах Railway
+    return jsonify(result)
+
 # --- КОМАНДЫ ---
 @dp.message(Command("start"))
 async def start(m: Message):
-    await m.answer("Привет! Используй /регистрация Имя, чтобы начать.")
+    # Проверим, зарегистрирован ли
+    with get_db() as conn:
+        user = conn.execute("SELECT name FROM couriers WHERE tg_id = ?", (m.from_user.id,)).fetchone()
+    
+    if user:
+        # Зарегистрирован → показываем кнопки
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+            [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+            [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help")]
+        ])
+        await m.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
+    else:
+        # Не зарегистрирован → просим регистрацию
+        await m.answer(
+            "🚴 Добро пожаловать!\n\n"
+            "📌 Сначала зарегистрируйся:\n"
+            "`/регистрация Имя`\n\n"
+            "Например: `/регистрация Иван`",
+            parse_mode="Markdown"
+        )
 
 @dp.message(Command("регистрация"))
 async def reg(m: Message):
@@ -106,6 +171,18 @@ async def leave(m: Message):
     else:
         await m.answer("📭 Тебя не было в очереди.")
 
+@dp.message(Command("help"))
+async def help_cmd(m: Message):
+    help_text = (
+        "ℹ️ *Справка по боту*\n\n"
+        "🔹 `/регистрация Имя` — один раз в начале\n"
+        "   Пример: `/регистрация Анна`\n\n"
+        "🔹 `✅ Встать` — встать в конец очереди\n"
+        "🔹 `🚪 Выйти` — покинуть очередь\n\n"
+        "💡 Подсказка: после регистрации кнопки появятся автоматически — просто нажми /start"
+    )
+    await m.answer(help_text, parse_mode="Markdown")
+
 # --- ЗАПУСК ---
 async def main():
     print("🤖 Telegram-бот запущен...")
@@ -114,4 +191,5 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+
 

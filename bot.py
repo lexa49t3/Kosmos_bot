@@ -18,7 +18,7 @@ dp = Dispatcher()
 
 # --- БАЗА ---
 def get_db():
-    conn = sqlite3.connect("couriers.db")
+    conn = sqlite3.connect("/tmp/couriers.db")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -114,3 +114,4 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+

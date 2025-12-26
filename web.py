@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 import os
 
-app = Flask(name)
+app = Flask(__name__)
 
 def get_db():
     conn = sqlite3.connect("couriers.db")
@@ -110,4 +110,5 @@ def index():
         ORDER BY total DESC
     ''', (today,)).fetchall()
     
+
     return render_template_string(HTML, queue=queue, stats=stats)

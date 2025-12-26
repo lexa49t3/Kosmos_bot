@@ -1,6 +1,9 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "NIXPACKS",
+    "env": {
+      "NIXPACKS_PYTHON_VERSION": "3.12"
+    }
   },
   "deploy": {
     "startCommand": "python bot.py & gunicorn --bind 0.0.0.0:$PORT web:app"

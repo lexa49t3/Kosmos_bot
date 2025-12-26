@@ -52,8 +52,7 @@ def api_queue():
         ORDER BY q.join_time
     ''').fetchall()
     # Конвертируем в список словарей
-    result = [{"name": row["name"]} for row in queue]
-    return jsonify(result)
+    return jsonify([{"name": r["name"]} for r in rows])
 
 @app.route("/", methods=["GET"])
 def index():
@@ -102,5 +101,6 @@ def refresh():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 

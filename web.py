@@ -45,7 +45,7 @@ from flask import jsonify
 @app.route("/api/queue")
 def api_queue():
     db = get_db()
-    queue = db.execute('''
+    rows = db.execute('''
         SELECT c.name
         FROM queue q
         JOIN couriers c ON q.tg_id = c.tg_id
@@ -101,6 +101,7 @@ def refresh():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 

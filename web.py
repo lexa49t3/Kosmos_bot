@@ -3,13 +3,17 @@ from flask import Flask, render_template, request, redirect, url_for
 import sqlite3
 from datetime import datetime
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__, template_folder="templates")
 
 def get_db():
-    conn = sqlite3.connect("/tmp/couriers.db")
-    conn.row_factory = sqlite3.Row
-    return conn
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise ValueError("❌ DATABASE_URL не установлен!")
+    conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+    return connnn
 
 def init_db():
     with get_db() as conn:
@@ -101,6 +105,7 @@ def refresh():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 

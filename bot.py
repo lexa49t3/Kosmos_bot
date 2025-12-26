@@ -1,4 +1,4 @@
-# bot.py — только Telegram-бот (aiogram), без Flask!
+# bot.py — финальная версия
 import asyncio
 import sqlite3
 from datetime import datetime
@@ -7,7 +7,6 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import os
 
-# Токен
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN не установлен!")
@@ -15,7 +14,6 @@ if not BOT_TOKEN:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- БАЗА ДАННЫХ ---
 def get_db():
     conn = sqlite3.connect("/tmp/couriers.db")
     conn.row_factory = sqlite3.Row
@@ -40,7 +38,6 @@ def init_db():
 
 init_db()
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def add_to_queue(tg_id):
     with get_db() as conn:
         now = datetime.now().isoformat()
@@ -118,6 +115,13 @@ async def join_btn(c: CallbackQuery):
         if not user:
             await c.answer("⛔ Зарегистрируйся: /регистрация Имя", show_alert=True)
             return
+
+        # ❗ Проверка: уже в очереди?
+        in_queue = conn.execute("SELECT 1 FROM queue WHERE tg_id = ?", (tg_id,)).fetchone()
+        if in_queue:
+            await c.answer("✅ Ты уже в очереди! Сначала выйди через 🚪 Выйти", show_alert=True)
+            return
+
     add_to_queue(tg_id)
     pos = get_queue_position(tg_id)
     await c.answer(f"✅ Ты №{pos} в очереди!", show_alert=True)

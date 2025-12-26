@@ -1,0 +1,8 @@
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "python bot.py & gunicorn --bind 0.0.0.0:$PORT web:app"
+  }
+}

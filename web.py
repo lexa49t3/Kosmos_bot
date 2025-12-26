@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 import os
 
-app = Flask(name, template_folder="templates")
+app = Flask(__name__, template_folder="templates")
 
 def get_db():
     conn = sqlite3.connect("/tmp/couriers.db")
@@ -99,7 +99,8 @@ def cashier():
 def refresh():
     return redirect(url_for("index"))
 
-if name == "main":
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+
 

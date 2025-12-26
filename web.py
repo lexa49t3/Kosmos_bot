@@ -40,6 +40,21 @@ def init_db():
 # Создаём БД при старте
 init_db()
 
+from flask import jsonify
+
+@app.route("/api/queue")
+def api_queue():
+    db = get_db()
+    queue = db.execute('''
+        SELECT c.name
+        FROM queue q
+        JOIN couriers c ON q.tg_id = c.tg_id
+        ORDER BY q.join_time
+    ''').fetchall()
+    # Конвертируем в список словарей
+    result = [{"name": row["name"]} for row in queue]
+    return jsonify(result)
+
 @app.route("/", methods=["GET"])
 def index():
     db = get_db()
@@ -76,6 +91,10 @@ def assign_order():
         db.commit()
     return redirect(url_for("index"))
 
+@app.route("/cashier")
+def cashier():
+    return render_template("cashier.html")
+
 @app.route("/refresh", methods=["POST"])
 def refresh():
     return redirect(url_for("index"))
@@ -83,3 +102,4 @@ def refresh():
 if name == "main":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
+

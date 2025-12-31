@@ -1,4 +1,4 @@
-# bot.py — улучшенная версия
+# bot.py — Webhook-версия (рабочая на Railway)
 import asyncio
 import os
 import psycopg2
@@ -9,26 +9,35 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
+# === НАСТРОЙКИ ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не установлен!")
+    raise ValueError("❌ BOT_TOKEN не установлен в Variables!")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не установлен! Добавь в Railway Variables.")
+    raise ValueError("❌ DATABASE_URL не установлен в Variables!")
 
+# 🔑 Замени на свой домен из Railway (например: https://pizza-bot.up.railway.app)
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_SECRET = "courier_bot_secret_2025"  # можно оставить как есть
+BASE_URL = os.getenv("BASE_URL", "https://kosmosbot-production.up.railway.app/")  # ←❗ ОБЯЗАТЕЛЬНО ЗАМЕНИ
+
+# === КЛИЕНТЫ ===
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- FSM для регистрации ---
+# === FSM ===
 class Register(StatesGroup):
     waiting_for_name = State()
 
+# === БАЗА ===
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    return conn
+    url = DATABASE_URL.replace("postgresql://", "postgres://")
+    return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 def init_db():
     with get_db() as conn:
@@ -42,16 +51,16 @@ def init_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS queue (
                     id SERIAL PRIMARY KEY,
-                    tg_id BIGINT,
+                    tg_id BIGINT NOT NULL,
                     join_time TIMESTAMPTZ DEFAULT NOW(),
-                    FOREIGN KEY(tg_id) REFERENCES couriers(tg_id)
+                    FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
                 )
             """)
             conn.commit()
 
 init_db()
 
-# --- Вспомогательные функции ---
+# === ВСПОМОГАТЕЛЬНЫЕ ===
 def add_to_queue(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -88,7 +97,7 @@ def get_queue_position(tg_id):
             res = cur.fetchone()
             return res["count"] if res else 1
 
-# --- /start → главное меню ---
+# === ХЕНДЛЕРЫ ===
 @dp.message(Command("start"))
 async def start(m: Message, state: FSMContext):
     await state.clear()
@@ -109,7 +118,6 @@ async def start(m: Message, state: FSMContext):
         await m.answer("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
 
-# --- FSM: ожидание имени ---
 @dp.message(Register.waiting_for_name)
 async def process_name(m: Message, state: FSMContext):
     name = m.text.strip()
@@ -127,12 +135,11 @@ async def process_name(m: Message, state: FSMContext):
                 )
                 conn.commit()
         await m.answer(f"✅ Привет, *{name}*! Теперь ты в системе.", parse_mode="Markdown")
-        await start(m, state)  # покажем меню
+        await start(m, state)
     except Exception as e:
         await m.answer("❌ Ошибка регистрации. Попробуй ещё раз.")
         print("ERROR:", e)
 
-# --- Кнопки ---
 @dp.callback_query(F.data == "join")
 async def join_btn(c: CallbackQuery):
     tg_id = c.from_user.id
@@ -183,10 +190,36 @@ async def help_btn(c: CallbackQuery):
     )
     await c.answer()
 
-# --- Запуск ---
+# === WEBHOOK ===
+async def on_startup(bot: Bot) -> None:
+    webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
+    print(f"📡 Устанавливаю вебхук: {webhook_url}")
+    await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET)
+    print("✅ Вебхук установлен")
+
+async def on_shutdown(bot: Bot) -> None:
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("🔌 Вебхук удалён")
+
 async def main():
-    print("🚀 Бот запущен (PostgreSQL + FSM)")
-    await dp.start_polling(bot)
+    app = web.Application()
+    webhook_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+        secret_token=WEBHOOK_SECRET,
+    )
+    webhook_handler.register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+
+    await on_startup(bot)
+
+    port = int(os.getenv("PORT", 8000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🚀 Бот запущен в Webhook-режиме на порту {port}")
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())

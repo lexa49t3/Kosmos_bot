@@ -1,11 +1,6 @@
 {
-  "build": {
-    "builder": "NIXPACKS"
-  },
+  "build": { "builder": "NIXPACKS" },
   "deploy": {
-    "startCommand": "python bot.py & gunicorn --bind 0.0.0.0:$PORT web:app",
-    "env": {
-      "DATABASE_URL": "postgresql://postgres:OxvNwQzGVIJeixowVWTZaNglrWLRyrQD@postgres.railway.internal:5432/railway"
-    }
+    "startCommand": "python bot.py"
   }
 }

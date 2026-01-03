@@ -195,14 +195,15 @@ async def main():
     app = web.Application()
     
     # 🩺 Healthcheck для Railway
-    app.router.add_get("/", lambda r: web.json_response({"status": "ok"}))
+    app.router.add_get("/", lambda r: web.Response(text="OK"))
     
-    # Webhook
+    # 🔌 Webhook
     SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
         secret_token=WEBHOOK_SECRET,
     ).register(app, path=WEBHOOK_PATH)
+    
     setup_application(app, dp, bot=bot)
 
     port = int(os.getenv("PORT", 8000))
@@ -210,19 +211,15 @@ async def main():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"🚀 HTTP-сервер запущен на порту {port}")
-
+    
     # Устанавливаем вебхук
     webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
-    await bot.set_webhook(
-        webhook_url,
-        secret_token=WEBHOOK_SECRET,
-        drop_pending_updates=True
-    )
-    print(f"✅ Webhook установлен: {webhook_url}")
+    await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
+    print(f"✅ Webhook: {webhook_url}")
 
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 

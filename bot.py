@@ -1,4 +1,4 @@
-# bot.py — Webhook-версия (рабочая на Railway)
+# bot.py — финальная Webhook-версия (рабочая на Railway)
 import asyncio
 import os
 import psycopg2
@@ -15,16 +15,15 @@ from aiohttp import web
 # === НАСТРОЙКИ ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не установлен в Variables!")
+    raise RuntimeError("❌ BOT_TOKEN не установлен в Variables!")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL не установлен в Variables!")
+    raise RuntimeError("❌ DATABASE_URL не установлен в Variables!")
 
-# 🔑 Замени на свой домен из Railway (например: https://pizza-bot.up.railway.app)
+BASE_URL = os.getenv("BASE_URL", "https://kosmosbot-production.up.railway.app").rstrip("/")
 WEBHOOK_PATH = "/webhook"
-WEBHOOK_SECRET = "courier_bot_secret_2025"  # можно оставить как есть
-BASE_URL = os.getenv("BASE_URL", "https://kosmosbot-production.up.railway.app/")  # ←❗ ОБЯЗАТЕЛЬНО ЗАМЕНИ
+WEBHOOK_SECRET = "courier_bot_secret_2025"
 
 # === КЛИЕНТЫ ===
 bot = Bot(token=BOT_TOKEN)
@@ -58,6 +57,7 @@ def init_db():
             """)
             conn.commit()
 
+# Инициализация БД при старте
 init_db()
 
 # === ВСПОМОГАТЕЛЬНЫЕ ===
@@ -73,8 +73,7 @@ def add_to_queue(tg_id):
 def remove_from_queue(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,))
-            return cur.rowcount
+            return cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,)).rowcount
 
 def get_queue():
     with get_db() as conn:
@@ -152,8 +151,7 @@ async def join_btn(c: CallbackQuery):
                 return
 
             cur.execute("SELECT 1 FROM queue WHERE tg_id = %s", (tg_id,))
-            in_queue = cur.fetchone()
-            if in_queue:
+            if cur.fetchone():
                 await c.answer("✅ Ты уже в очереди! Сначала выйди через 🚪 Выйти", show_alert=True)
                 return
 
@@ -190,35 +188,35 @@ async def help_btn(c: CallbackQuery):
     )
     await c.answer()
 
-# === WEBHOOK ===
-async def on_startup(bot: Bot) -> None:
-    webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
-    print(f"📡 Устанавливаю вебхук: {webhook_url}")
-    await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET)
-    print("✅ Вебхук установлен")
-
-async def on_shutdown(bot: Bot) -> None:
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("🔌 Вебхук удалён")
-
+# === WEBHOOK (исправлено: без start_polling!) ===
 async def main():
+    # 1. Создаём aiohttp-приложение
     app = web.Application()
-    webhook_handler = SimpleRequestHandler(
+    SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
         secret_token=WEBHOOK_SECRET,
-    )
-    webhook_handler.register(app, path=WEBHOOK_PATH)
+    ).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 
-    await on_startup(bot)
-
+    # 2. Запускаем сервер
     port = int(os.getenv("PORT", 8000))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"🚀 Бот запущен в Webhook-режиме на порту {port}")
+    print(f"🚀 HTTP-сервер запущен на порту {port}")
+
+    # 3. Устанавливаем вебхук ПОСЛЕ запуска сервера
+    webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
+    await bot.set_webhook(
+        webhook_url,
+        secret_token=WEBHOOK_SECRET,
+        drop_pending_updates=True
+    )
+    print(f"✅ Webhook установлен: {webhook_url}")
+
+    # 4. Бесконечное ожидание
     await asyncio.Event().wait()
 
 if __name__ == "__main__":

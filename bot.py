@@ -187,11 +187,17 @@ async def help_btn(c: CallbackQuery):
         parse_mode="Markdown"
     )
     await c.answer()
-
-# === WEBHOOK (исправлено: без start_polling!) ===
+# === HEALTHCHECK ROUTE ДЛЯ RAILWAY ===
+async def healthcheck(request):
+    return web.json_response({"status": "ok", "bot": "running"})
+    
 async def main():
-    # 1. Создаём aiohttp-приложение
     app = web.Application()
+    
+    # 🩺 Healthcheck для Railway
+    app.router.add_get("/", lambda r: web.json_response({"status": "ok"}))
+    
+    # Webhook
     SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
@@ -199,7 +205,6 @@ async def main():
     ).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 
-    # 2. Запускаем сервер
     port = int(os.getenv("PORT", 8000))
     runner = web.AppRunner(app)
     await runner.setup()
@@ -207,7 +212,7 @@ async def main():
     await site.start()
     print(f"🚀 HTTP-сервер запущен на порту {port}")
 
-    # 3. Устанавливаем вебхук ПОСЛЕ запуска сервера
+    # Устанавливаем вебхук
     webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
     await bot.set_webhook(
         webhook_url,
@@ -216,8 +221,8 @@ async def main():
     )
     print(f"✅ Webhook установлен: {webhook_url}")
 
-    # 4. Бесконечное ожидание
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
+

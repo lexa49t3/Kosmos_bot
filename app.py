@@ -89,8 +89,8 @@ def add_to_queue(tg_id):
 def remove_from_queue(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
-            result = cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,))
-            affected = result.rowcount
+            cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,))
+            affected = cur.rowcount
             conn.commit()
             return affected
 

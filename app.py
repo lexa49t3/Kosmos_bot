@@ -1,4 +1,4 @@
-# app.py - единая точка входа для веб-интерфейса и бота
+# app.py - единая точка входа
 import asyncio
 import os
 import psycopg2
@@ -12,6 +12,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from flask import Flask, render_template, request, redirect, url_for, jsonify
+import threading
+import time
 
 # === НАСТРОЙКИ ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -241,7 +243,7 @@ async def leave_btn(c: CallbackQuery):
 async def show_queue(c: CallbackQuery):
     rows = get_queue()
     if not rows:
-        text = "📭 Очередь пуста."
+        text = "ostringstream пуста."
     else:
         lines = [f"{i+1}. {row['name']}" for i, row in enumerate(rows)]
         text = "📋 *Текущая очередь:*\n" + "\n".join(lines)
@@ -256,19 +258,20 @@ async def help_btn(c: CallbackQuery):
         "🔹 ✅ Встать — встать в очередь\n"
         "🔹 🚪 Выйти — покинуть очередь\n"
         "🔹 📋 Список — посмотреть очередь\n\n"
-        "Все действия — через кноки, без команд.",
+        "Все действия — через кнопки, без команд.",
         parse_mode="Markdown"
     )
     await c.answer()
 
-# === ASGI приложение для aiohttp ===
-async def healthcheck(request):
-    return web.json_response({"status": "ok", "bot": "running"})
-
-def create_aiohttp_app():
+# === Функция для запуска aiohttp сервера с webhook ===
+async def run_webhook():
     app = web.Application()
     
     # Healthcheck для Railway
+    async def healthcheck(request):
+        return web.json_response({"status": "ok", "bot": "running"})
+    
+    app.router.add_get("/", healthcheck)
     app.router.add_get("/health", healthcheck)
     
     # Webhook для бота
@@ -279,12 +282,6 @@ def create_aiohttp_app():
     ).register(app, path=WEBHOOK_PATH)
     
     setup_application(app, dp, bot=bot)
-    
-    return app
-
-# Для запуска в режиме webhook
-async def run_bot():
-    app = create_aiohttp_app()
     
     port = int(os.getenv("PORT", 8080))
     runner = web.AppRunner(app)
@@ -299,8 +296,19 @@ async def run_bot():
     
     return runner
 
+# === Запуск Flask в отдельном потоке ===
+def run_flask():
+    port = int(os.getenv("PORT", 8080))
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
 if __name__ == "__main__":
-    # Если запускается напрямую - запускаем только Flask
-    if os.getenv("FLASK_RUN") or __name__ == "__main__":
-        port = int(os.getenv("PORT", 8080))
-        flask_app.run(host="0.0.0.0", port=port)
+    # Запускаем Flask в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Запускаем aiohttp с webhook в основном потоке
+    asyncio.run(run_webhook())
+    
+    # Ждем Flask поток
+    flask_thread.join()

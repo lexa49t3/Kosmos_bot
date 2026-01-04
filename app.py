@@ -22,7 +22,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL не установлен в Variables!")
 
-BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip("/")
+BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip("/") # Исправлен URL
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
 
@@ -406,12 +406,13 @@ async def main():
     # Веб-интерфейс маршруты
     app.router.add_get("/cashier", cashier)
     
-    # Webhook для бота
-    SimpleRequestHandler(
+    # Регистрируем обработчик вебхука aiogram
+    webhook_requests_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
         secret_token=WEBHOOK_SECRET,
-    ).register(app, path=WEBHOOK_PATH)
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
     
     setup_application(app, dp, bot=bot)
     

@@ -27,7 +27,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL не установлен в Variables!")
 
-BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip("/") # Исправлен URL
+BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip("/")
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
 
@@ -98,7 +98,7 @@ def get_queue():
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT c.name
+                SELECT c.name, c.tg_id
                 FROM queue q
                 JOIN couriers c ON q.tg_id = c.tg_id
                 ORDER BY q.join_time
@@ -209,6 +209,20 @@ CASHIER_HTML = """
         .name {
             flex-grow: 1;
         }
+        .remove-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+        .remove-btn:hover {
+            background: #d32f2f;
+        }
         .empty {
             text-align: center;
             color: #757575;
@@ -259,10 +273,12 @@ CASHIER_HTML = """
                     if (data.length === 0) {
                         list.innerHTML = '<li class="empty">ostringstream Очередь пуста</li>';
                     } else {
+                        // Создаем HTML для каждого элемента очереди с кнопкой удаления
                         list.innerHTML = data.map((item, index) => 
                             `<li class="queue-item">
                                 <div class="number">${index + 1}</div>
                                 <div class="name">${item.name}</div>
+                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">❌ Удалить</button>
                             </li>`
                         ).join('');
                     }
@@ -279,6 +295,31 @@ CASHIER_HTML = """
                     document.getElementById('queue-list').innerHTML = 
                         '<li class="empty">⚠️ Ошибка загрузки</li>';
                 });
+        }
+
+        function removeCourier(tgId) {
+            if (confirm(`Вы уверены, что хотите удалить курьера с ID ${tgId} из очереди?`)) {
+                fetch('/api/remove_courier', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ tg_id: tgId })
+                })
+                .then(response => {
+                    if (response.ok) {
+                        console.log(`Курьер ${tgId} удален.`);
+                        updateQueue(); // Обновляем очередь после удаления
+                    } else {
+                        alert('Ошибка при удалении курьера.');
+                        console.error('Ошибка при удалении:', response.status);
+                    }
+                })
+                .catch(err => {
+                    console.error('Ошибка сети при удалении:', err);
+                    alert('Ошибка сети при удалении курьера.');
+                });
+            }
         }
 
         // Обновляем сразу при загрузке
@@ -373,7 +414,7 @@ async def leave_btn(c: CallbackQuery):
 async def show_queue(c: CallbackQuery):
     rows = get_queue()
     if not rows:
-        text = "ostringstream пуста."
+        text = "sstream пуста."
     else:
         lines = [f"{i+1}. {row['name']}" for i, row in enumerate(rows)]
         text = "📋 *Текущая очередь:*\n" + "\n".join(lines)
@@ -397,10 +438,42 @@ async def help_btn(c: CallbackQuery):
 async def api_queue(request: Request) -> Response:
     try:
         rows = get_queue()
-        return web.json_response([{"name": row["name"]} for row in rows])
+        # Возвращаем список объектов с name и tg_id
+        return web.json_response([{"name": row["name"], "tg_id": row["tg_id"]} for row in rows])
     except Exception as e:
         logger.error(f"Ошибка в /api/queue: {e}")
         return web.json_response({"error": "Internal Server Error"}, status=500)
+
+# --- НОВЫЙ МАРШРУТ ДЛЯ УДАЛЕНИЯ ---
+async def api_remove_courier(request: Request) -> Response:
+    try:
+        data = await request.json()
+        tg_id = data.get("tg_id")
+        
+        if not tg_id:
+            return web.json_response({"error": "Missing tg_id"}, status=400)
+
+        # Проверяем, что tg_id - число
+        try:
+            tg_id = int(tg_id)
+        except ValueError:
+            return web.json_response({"error": "Invalid tg_id format"}, status=400)
+
+        removed = remove_from_queue(tg_id)
+
+        if removed > 0:
+            logger.info(f"Курьер {tg_id} удален из очереди администратором.")
+            return web.json_response({"status": "success", "removed": removed})
+        else:
+            # Возвращаем success, даже если курьер не был в очереди
+            logger.info(f"Попытка удалить курьера {tg_id}, которого нет в очереди.")
+            return web.json_response({"status": "success", "removed": 0})
+
+    except Exception as e:
+        logger.error(f"Ошибка в /api/remove_courier: {e}")
+        return web.json_response({"error": "Internal Server Error"}, status=500)
+
+# --- /НОВЫЙ МАРШРУТ ---
 
 async def root_handler(request: Request) -> Response:
     return web.Response(text=CASHIER_HTML, content_type="text/html")
@@ -423,6 +496,8 @@ async def main():
     
     # API маршруты
     app.router.add_get("/api/queue", api_queue)
+    # Добавляем новый маршрут для удаления
+    app.router.add_post("/api/remove_courier", api_remove_courier)
     
     # Веб-интерфейс маршруты
     app.router.add_get("/cashier", cashier)

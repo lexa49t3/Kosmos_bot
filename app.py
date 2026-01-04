@@ -1,4 +1,4 @@
-# main.py - чистый aiohttp сервер с Telegram ботом (только API и касса)
+# app.py - чистый aiohttp сервер с Telegram ботом (только API и касса)
 import asyncio
 import os
 import psycopg2
@@ -381,6 +381,9 @@ async def api_queue(request: Request) -> Response:
     rows = get_queue()
     return web.json_response([{"name": row["name"]} for row in rows])
 
+async def root_handler(request: Request) -> Response:
+    return web.Response(text=CASHIER_HTML, content_type="text/html")
+
 async def cashier(request: Request) -> Response:
     return web.Response(text=CASHIER_HTML, content_type="text/html")
 
@@ -392,8 +395,10 @@ async def main():
     app = web.Application()
     
     # Healthcheck
-    app.router.add_get("/", healthcheck)
     app.router.add_get("/health", healthcheck)
+    
+    # Главная страница - теперь возвращает кассу
+    app.router.add_get("/", root_handler)
     
     # API маршруты
     app.router.add_get("/api/queue", api_queue)

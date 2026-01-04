@@ -162,7 +162,7 @@ CASHIER_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>👨‍💻 Касса — Очередь курьеров</title>
+    <title>Очередь</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -254,7 +254,7 @@ CASHIER_HTML = """
 <body>
     <div class="container">
         <header>
-            <h1>Касса — Очередь курьеров</h1>
+            <h1>Очередь курьеров</h1>
             <div class="time" id="current-time">—</div>
         </header>
 

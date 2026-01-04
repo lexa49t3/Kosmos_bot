@@ -1,5 +1,6 @@
 # app.py - чистый aiohttp сервер с Telegram ботом (только API и касса)
 import asyncio
+import logging
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -12,6 +13,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from aiohttp.web import Request, Response
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # === НАСТРОЙКИ ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -29,35 +34,44 @@ WEBHOOK_SECRET = "courier_bot_secret_2025"
 # === БАЗА ===
 def get_db():
     url = DATABASE_URL.replace("postgresql://", "postgres://")
-    return psycopg2.connect(url, cursor_factory=RealDictCursor)
+    try:
+        return psycopg2.connect(url, cursor_factory=RealDictCursor)
+    except Exception as e:
+        logger.error(f"Ошибка подключения к БД: {e}")
+        raise
 
 def init_db():
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS couriers (
-                    tg_id BIGINT PRIMARY KEY,
-                    name TEXT NOT NULL
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS queue (
-                    id SERIAL PRIMARY KEY,
-                    tg_id BIGINT NOT NULL,
-                    join_time TIMESTAMPTZ DEFAULT NOW(),
-                    FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS orders (
-                    id SERIAL PRIMARY KEY,
-                    courier_tg_id BIGINT NOT NULL,
-                    assigned_at TIMESTAMPTZ DEFAULT NOW(),
-                    completed_at TIMESTAMPTZ,
-                    FOREIGN KEY (courier_tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
-                )
-            """)
-            conn.commit()
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS couriers (
+                        tg_id BIGINT PRIMARY KEY,
+                        name TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS queue (
+                        id SERIAL PRIMARY KEY,
+                        tg_id BIGINT NOT NULL,
+                        join_time TIMESTAMPTZ DEFAULT NOW(),
+                        FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS orders (
+                        id SERIAL PRIMARY KEY,
+                        courier_tg_id BIGINT NOT NULL,
+                        assigned_at TIMESTAMPTZ DEFAULT NOW(),
+                        completed_at TIMESTAMPTZ,
+                        FOREIGN KEY (courier_tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                    )
+                """)
+                conn.commit()
+        logger.info("База данных инициализирована/проверена успешно.")
+    except Exception as e:
+        logger.error(f"Ошибка инициализации БД: {e}")
+        raise
 
 # Инициализация БД при старте
 init_db()
@@ -75,7 +89,10 @@ def add_to_queue(tg_id):
 def remove_from_queue(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
-            return cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,)).rowcount
+            result = cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,))
+            affected = result.rowcount
+            conn.commit()
+            return affected
 
 def get_queue():
     with get_db() as conn:
@@ -325,7 +342,7 @@ async def process_name(m: Message, state: FSMContext):
         await start(m, state)
     except Exception as e:
         await m.answer("❌ Ошибка регистрации. Попробуй ещё раз.")
-        print("ERROR:", e)
+        logger.error(f"Ошибка регистрации пользователя {m.from_user.id}: {e}")
 
 @dp.callback_query(F.data == "join")
 async def join_btn(c: CallbackQuery):
@@ -378,8 +395,12 @@ async def help_btn(c: CallbackQuery):
 
 # === AIOHTTP маршруты ===
 async def api_queue(request: Request) -> Response:
-    rows = get_queue()
-    return web.json_response([{"name": row["name"]} for row in rows])
+    try:
+        rows = get_queue()
+        return web.json_response([{"name": row["name"]} for row in rows])
+    except Exception as e:
+        logger.error(f"Ошибка в /api/queue: {e}")
+        return web.json_response({"error": "Internal Server Error"}, status=500)
 
 async def root_handler(request: Request) -> Response:
     return web.Response(text=CASHIER_HTML, content_type="text/html")
@@ -417,19 +438,37 @@ async def main():
     setup_application(app, dp, bot=bot)
     
     port = int(os.getenv("PORT", 8080))
+    logger.info(f"Попытка запуска сервера на порту {port}")
+    
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     
+    logger.info(f"Сервер запущен на порту {port}")
+    
     # Устанавливаем вебхук
     webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
-    print(f"✅ Webhook: {webhook_url}")
-    print(f"✅ Server running on port {port}")
-    
-    # Ждем завершения
-    await asyncio.Event().wait()
+    try:
+        await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
+        logger.info(f"✅ Webhook установлен: {webhook_url}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка установки вебхука: {e}")
+        raise
+
+    # Бесконечный цикл для удержания процесса
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        logger.info("Приложение останавливается...")
+    finally:
+        await runner.cleanup()
+        logger.info("Сервер остановлен.")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error(f"Критическая ошибка в main: {e}")
+        exit(1)

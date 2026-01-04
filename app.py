@@ -285,7 +285,7 @@ CASHIER_HTML = """
                     const updateTimeEl = document.getElementById('update-time');
                     
                     if (data.length === 0) {
-                        list.innerHTML = '<li class="empty">sstream Очередь пуста</li>';
+                        list.innerHTML = '<li class="empty">Очередь пуста</li>';
                     } else {
                         // Создаем HTML для каждого элемента очереди с кнопкой удаления
                         list.innerHTML = data.map((item, index) => 
@@ -360,12 +360,6 @@ dp = Dispatcher()
 class Register(StatesGroup):
     waiting_for_name = State()
 
-# --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ ХРАНЕНИЯ ID СООБЩЕНИЙ ---
-# Хранит ID сообщений с меню для каждого пользователя
-menu_message_ids = {}
-# Хранит ID сообщений со списком очереди для каждого пользователя
-queue_message_ids = {}
-
 # === ХЕНДЛЕРЫ БОТА ===
 @dp.message(Command("start"))
 async def start(m: Message, state: FSMContext):
@@ -381,9 +375,7 @@ async def start(m: Message, state: FSMContext):
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
-        # Отправляем новое сообщение и сохраняем его ID
-        sent_message = await m.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
-        menu_message_ids[m.from_user.id] = sent_message.message_id
+        await m.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
     else:
         await m.answer("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
@@ -435,11 +427,12 @@ async def leave_btn(c: CallbackQuery):
     changed = remove_from_queue(c.from_user.id)
     await c.answer("Ты вышел из очереди." if changed else "Тебя не было в очереди.", show_alert=True)
 
+# --- ИЗМЕНЕННЫЙ ХЕНДЛЕР show_queue (редактирует текущее сообщение) ---
 @dp.callback_query(F.data == "show_queue")
 async def show_queue(c: CallbackQuery):
     rows = get_queue()
     if not rows:
-        text = "sstream пуста."
+        text = "Очередь пуста."
     else:
         lines = [f"{i+1}. {row['name']}" for i, row in enumerate(rows)]
         text = "📋 *Текущая очередь:*\n" + "\n".join(lines)
@@ -448,41 +441,27 @@ async def show_queue(c: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
     ])
 
-    # Проверяем, есть ли уже сообщение с очередью
-    current_queue_msg_id = queue_message_ids.get(c.from_user.id)
-    if current_queue_msg_id:
-        # Если есть, пытаемся отредактировать его
-        try:
-            await bot.edit_message_text(
-                chat_id=c.from_user.id,
-                message_id=current_queue_msg_id,
-                text=text,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-            await c.answer()
-            return # Выходим, чтобы не отправлять новое сообщение
-        except Exception as e:
-            # Если не удалось отредактировать, удаляем старое сообщение (если возможно)
-            # и отправим новое. Это может произойти, если сообщение было удалено вручную.
-            logger.warning(f"Не удалось отредактировать сообщение с очередью: {e}")
-            # Удаляем ID, так как сообщение больше не существует
-            del queue_message_ids[c.from_user.id]
+    # Редактируем текущее сообщение (из которого нажали кнопку "Список")
+    try:
+        await bot.edit_message_text(
+            chat_id=c.from_user.id,
+            message_id=c.message.message_id, # ID текущего сообщения
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+    except Exception as e:
+        # Если не удалось отредактировать (например, сообщение слишком старое), отправим новое
+        logger.warning(f"Не удалось отредактировать сообщение с очередью: {e}")
+        await c.message.answer(text, parse_mode="Markdown", reply_markup=kb)
+    await c.answer() # Ответим на callback
 
-    # Отправляем новое сообщение с очередью
-    sent_message = await c.message.answer(text, parse_mode="Markdown", reply_markup=kb)
-    # Сохраняем ID нового сообщения
-    queue_message_ids[c.from_user.id] = sent_message.message_id
-    await c.answer()
+# --- /ИЗМЕНЕННЫЙ ХЕНДЛЕР ---
 
-# Добавляем обработчик для кнопки "Назад"
+# --- ИЗМЕНЕННЫЙ ХЕНДЛЕР back_to_menu (редактирует текущее сообщение) ---
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(c: CallbackQuery, state: FSMContext):
-    # Удаляем ID сообщения с очередью, так как пользователь уходит с этой страницы
-    if c.from_user.id in queue_message_ids:
-        del queue_message_ids[c.from_user.id]
-
-    # Повторяем логику start, но для редактирования сообщения
+    # Повторяем логику start, но для редактирования текущего сообщения
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (c.from_user.id,))
@@ -494,30 +473,25 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
-        # Проверяем, есть ли сообщение с меню
-        current_menu_msg_id = menu_message_ids.get(c.from_user.id)
-        if current_menu_msg_id:
-            try:
-                await bot.edit_message_text(
-                    chat_id=c.from_user.id,
-                    message_id=current_menu_msg_id,
-                    text=f"Привет, {user['name']}! 👋\nВыбери действие:",
-                    reply_markup=kb,
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.warning(f"Не удалось отредактировать сообщение с меню: {e}")
-                # Если не удалось, отправим новое
-                sent_message = await c.message.edit_text(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb, parse_mode="Markdown")
-                menu_message_ids[c.from_user.id] = sent_message.message_id
-        else:
-            # Если ID нет, отправим новое сообщение (это может быть редкий случай)
-            sent_message = await c.message.edit_text(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb, parse_mode="Markdown")
-            menu_message_ids[c.from_user.id] = sent_message.message_id
+        # Редактируем текущее сообщение (из которого нажали кнопку "Назад")
+        try:
+            await bot.edit_message_text(
+                chat_id=c.from_user.id,
+                message_id=c.message.message_id, # ID текущего сообщения
+                text=f"Привет, {user['name']}! 👋\nВыбери действие:",
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            # Если не удалось отредактировать, отправим новое
+            logger.warning(f"Не удалось отредактировать сообщение с меню: {e}")
+            await c.message.edit_text(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb, parse_mode="Markdown")
     else:
         await c.message.edit_text("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
-    await c.answer()
+    await c.answer() # Ответим на callback
+
+# --- /ИЗМЕНЕННЫЙ ХЕНДЛЕР ---
 
 # === AIOHTTP маршруты ===
 async def api_queue(request: Request) -> Response:
@@ -630,9 +604,6 @@ async def main():
         logger.error(f"❌ Ошибка установки вебхука: {e}")
         raise
 
-    # --- ЗАПУСК ПЛАНИРОВЩИКА ---
-    # Запускаем задачу на очистку очереди каждый день в 01:00 по Екатеринбургу (UTC+5)
-    # Это соответствует 20:00 UTC
     cron_task = aiocron.crontab('0 20 * * *', func=scheduled_queue_clear)
     logger.info("Планировщик задач запущен. Очередь будет очищаться каждый день в 01:00 по Екатеринбургскому времени (20:00 UTC).")
 

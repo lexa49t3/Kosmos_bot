@@ -31,19 +31,6 @@ BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip(
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
 
-# Получаем Telegram ID кассира из переменной окружения
-CASHIER_TG_ID = os.getenv("CASHIER_TG_ID")
-if not CASHIER_TG_ID:
-    raise RuntimeError("❌ CASHIER_TG_ID не установлен в Variables!")
-# Преобразуем строку в число
-try:
-    CASHIER_TG_ID = int(CASHIER_TG_ID)
-except ValueError:
-    raise RuntimeError("❌ CASHIER_TG_ID должен быть числом!")
-
-# === ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ ХРАНЕНИЯ ID СООБЩЕНИЯ С ОЧЕРЕДЬЮ (только для кассира) ===
-queue_message_id = None
-
 # === БАЗА ===
 def get_db():
     url = DATABASE_URL.replace("postgresql://", "postgres://")
@@ -284,7 +271,7 @@ CASHIER_HTML = """
                     const updateTimeEl = document.getElementById('update-time');
                     
                     if (data.length === 0) {
-                        list.innerHTML = '<li class="empty">ostringstream Очередь пуста</li>';
+                        list.innerHTML = '<li class="empty">sstream Очередь пуста</li>';
                     } else {
                         // Создаем HTML для каждого элемента очереди с кнопкой удаления
                         list.innerHTML = data.map((item, index) => 
@@ -423,10 +410,9 @@ async def leave_btn(c: CallbackQuery):
     changed = remove_from_queue(c.from_user.id)
     await c.answer("Ты вышел из очереди." if changed else "Тебя не было в очереди.", show_alert=True)
 
-# --- ИЗМЕНЕННЫЙ ХЕНДЛЕР show_queue ---
+# --- ИЗМЕНЕННЫЙ ХЕНДЛЕР show_queue (теперь просто показывает список) ---
 @dp.callback_query(F.data == "show_queue")
 async def show_queue(c: CallbackQuery):
-    global queue_message_id
     rows = get_queue()
     if not rows:
         text = "sstream пуста."
@@ -434,49 +420,13 @@ async def show_queue(c: CallbackQuery):
         lines = [f"{i+1}. {row['name']}" for i, row in enumerate(rows)]
         text = "📋 *Текущая очередь:*\n" + "\n".join(lines)
 
-    # Создаем клавиатуру без кнопок удаления для курьеров
-    # Проверяем, является ли пользователь кассиром
-    is_cashier = (c.from_user.id == CASHIER_TG_ID)
-    
-    if is_cashier:
-        # Для кассира добавляем кнопку "Обновить очередь" или "Назад" (опционально)
-        # В данном случае, кнопка "Список" сама по себе обновляет, так что можно оставить как есть
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Обновить", callback_data="show_queue")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
-        ])
-    else:
-        # Для обычного курьера просто кнопка "Назад"
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
-        ])
+    # Кнопка "Назад" для возврата в меню
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
+    ])
 
-    # Проверяем, нужно ли отправить новое сообщение или отредактировать старое
-    # Если это кассир и у нас есть ID старого сообщения с очередью
-    if c.from_user.id == CASHIER_TG_ID and queue_message_id:
-        try:
-            # Пытаемся отредактировать старое сообщение
-            await bot.edit_message_text(
-                chat_id=c.from_user.id,
-                message_id=queue_message_id,
-                text=text,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
-            # ID сообщения остается тем же
-            await c.answer() # Ответим на callback
-            return # Выходим, чтобы не отправлять новое сообщение
-        except Exception as e:
-            # Если не удалось отредактировать (например, сообщение удалено), логируем и отправим новое
-            logger.warning(f"Не удалось отредактировать сообщение с очередью: {e}")
-            # Сбросим ID, так как сообщение больше не существует
-            queue_message_id = None
-
-    # Отправляем новое сообщение
-    sent_message = await c.message.answer(text, parse_mode="Markdown", reply_markup=kb)
-    # Если это кассир, сохраняем ID нового сообщения
-    if c.from_user.id == CASHIER_TG_ID:
-        queue_message_id = sent_message.message_id
+    # Отправляем сообщение с очередью и кнопкой "Назад"
+    await c.message.answer(text, parse_mode="Markdown", reply_markup=kb)
     await c.answer() # Ответим на callback
 
 # --- /ИЗМЕНЕННЫЙ ХЕНДЛЕР ---
@@ -484,11 +434,6 @@ async def show_queue(c: CallbackQuery):
 # Добавляем обработчик для кнопки "Назад"
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(c: CallbackQuery, state: FSMContext):
-    global queue_message_id
-    # Сбрасываем ID сообщения с очередью, если пользователь уходит с этой страницы
-    if c.from_user.id == CASHIER_TG_ID:
-        queue_message_id = None
-
     # Повторяем логику start, но для редактирования сообщения
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -550,10 +495,6 @@ async def api_remove_courier(request: Request) -> Response:
 
         if removed > 0:
             logger.info(f"Курьер {tg_id} удален из очереди через веб-интерфейс.")
-            # Удаляем ID сообщения с очередью, чтобы оно обновилось при следующем вызове show_queue
-            global queue_message_id
-            if queue_message_id:
-                queue_message_id = None
             return web.json_response({"status": "success", "removed": removed})
         else:
             # Возвращаем success, даже если курьер не был в очереди

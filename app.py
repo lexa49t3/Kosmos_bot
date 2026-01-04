@@ -298,7 +298,8 @@ CASHIER_HTML = """
         }
 
         function removeCourier(tgId) {
-            if (confirm(`Вы уверены, что хотите удалить курьера с ID ${tgId} из очереди?`)) {
+            // Убрано подтверждение
+            // if (confirm(`Вы уверены, что хотите удалить курьера с ID ${tgId} из очереди?`)) {
                 fetch('/api/remove_courier', {
                     method: 'POST',
                     headers: {
@@ -311,15 +312,18 @@ CASHIER_HTML = """
                         console.log(`Курьер ${tgId} удален.`);
                         updateQueue(); // Обновляем очередь после удаления
                     } else {
-                        alert('Ошибка при удалении курьера.');
-                        console.error('Ошибка при удалении:', response.status);
+                        // Попробуем получить текст ошибки из ответа
+                        return response.text().then(text => {
+                            console.error('Ошибка при удалении:', response.status, text);
+                            alert(`Ошибка при удалении курьера: ${text}`);
+                        });
                     }
                 })
                 .catch(err => {
                     console.error('Ошибка сети при удалении:', err);
-                    alert('Ошибка сети при удалении курьера.');
+                    alert(`Ошибка сети при удалении курьера: ${err.message}`);
                 });
-            }
+            // }
         }
 
         // Обновляем сразу при загрузке
@@ -352,11 +356,11 @@ async def start(m: Message, state: FSMContext):
             user = cur.fetchone()
 
     if user:
+        # Убрана кнопка "ℹ️ Справка"
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
-            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")],
-            [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help")]
+            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
         await m.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
     else:
@@ -441,11 +445,11 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
             user = cur.fetchone()
 
     if user:
+        # Убрана кнопка "ℹ️ Справка"
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
-            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")],
-            [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help")]
+            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
         await c.message.edit_text(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
     else:
@@ -453,18 +457,7 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
         await state.set_state(Register.waiting_for_name)
     await c.answer()
 
-@dp.callback_query(F.data == "help")
-async def help_btn(c: CallbackQuery):
-    await c.message.answer(
-        "ℹ️ *Справка*\n\n"
-        "🔹 При первом входе — укажи имя и фамилию\n"
-        "🔹 ✅ Встать — встать в очередь\n"
-        "🔹 🚪 Выйти — покинуть очередь\n"
-        "🔹 📋 Список — посмотреть очередь\n\n"
-        "Все действия — через кнопки, без команд.",
-        parse_mode="Markdown"
-    )
-    await c.answer()
+# Убран хендлер для "help"
 
 # === AIOHTTP маршруты ===
 async def api_queue(request: Request) -> Response:
@@ -479,17 +472,23 @@ async def api_queue(request: Request) -> Response:
 # --- МАРШРУТ ДЛЯ УДАЛЕНИЯ ЧЕРЕЗ САЙТ ---
 async def api_remove_courier(request: Request) -> Response:
     try:
-        data = await request.json()
+        # Попробуем получить JSON, но обернем в try-except
+        try:
+            data = await request.json()
+        except Exception as e:
+            logger.error(f"Ошибка парсинга JSON в /api/remove_courier: {e}")
+            return web.json_response({"error": f"Invalid JSON format: {str(e)}"}, status=400)
+
         tg_id = data.get("tg_id")
         
-        if not tg_id:
+        if tg_id is None: # Проверяем на None, а не на пустое значение
             return web.json_response({"error": "Missing tg_id"}, status=400)
 
         # Проверяем, что tg_id - число
         try:
             tg_id = int(tg_id)
         except ValueError:
-            return web.json_response({"error": "Invalid tg_id format"}, status=400)
+            return web.json_response({"error": "Invalid tg_id format, must be an integer"}, status=400)
 
         removed = remove_from_queue(tg_id)
 
@@ -502,7 +501,7 @@ async def api_remove_courier(request: Request) -> Response:
             return web.json_response({"status": "success", "removed": 0})
 
     except Exception as e:
-        logger.error(f"Ошибка в /api/remove_courier: {e}")
+        logger.error(f"Неожиданная ошибка в /api/remove_courier: {e}")
         return web.json_response({"error": "Internal Server Error"}, status=500)
 
 # --- /МАРШРУТ ---

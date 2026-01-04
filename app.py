@@ -271,7 +271,7 @@ CASHIER_HTML = """
                     const updateTimeEl = document.getElementById('update-time');
                     
                     if (data.length === 0) {
-                        list.innerHTML = '<li class="empty">sstream Очередь пуста</li>';
+                        list.innerHTML = '<li class="empty">Очередь пуста</li>';
                     } else {
                         // Создаем HTML для каждого элемента очереди с кнопкой удаления
                         list.innerHTML = data.map((item, index) => 

@@ -1,4 +1,4 @@
-# bot.py — финальная Webhook-версия (рабочая на Railway)
+# app.py - единая точка входа для веб-интерфейса и бота
 import asyncio
 import os
 import psycopg2
@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 
 # === НАСТРОЙКИ ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -21,17 +22,12 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL не установлен в Variables!")
 
-BASE_URL = os.getenv("BASE_URL", "https://kosmosbot-production.up.railway.app").rstrip("/")
+BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip("/")
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
 
-# === КЛИЕНТЫ ===
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# === FSM ===
-class Register(StatesGroup):
-    waiting_for_name = State()
+# === Flask приложение ===
+flask_app = Flask(__name__, template_folder="templates")
 
 # === БАЗА ===
 def get_db():
@@ -55,12 +51,21 @@ def init_db():
                     FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id SERIAL PRIMARY KEY,
+                    courier_tg_id BIGINT NOT NULL,
+                    assigned_at TIMESTAMPTZ DEFAULT NOW(),
+                    completed_at TIMESTAMPTZ,
+                    FOREIGN KEY (courier_tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                )
+            """)
             conn.commit()
 
 # Инициализация БД при старте
 init_db()
 
-# === ВСПОМОГАТЕЛЬНЫЕ ===
+# === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 def add_to_queue(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -86,6 +91,17 @@ def get_queue():
             """)
             return cur.fetchall()
 
+def get_queue_with_details():
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.name, q.tg_id, q.join_time
+                FROM queue q
+                JOIN couriers c ON q.tg_id = c.tg_id
+                ORDER BY q.join_time
+            """)
+            return cur.fetchall()
+
 def get_queue_position(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -96,7 +112,64 @@ def get_queue_position(tg_id):
             res = cur.fetchone()
             return res["count"] if res else 1
 
-# === ХЕНДЛЕРЫ ===
+def get_stats():
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            today = datetime.now().strftime("%Y-%m-%d")
+            cur.execute("""
+                SELECT c.name,
+                       COUNT(o.id) AS total,
+                       SUM(CASE WHEN DATE(o.assigned_at) = %s THEN 1 ELSE 0 END) AS today
+                FROM couriers c
+                LEFT JOIN orders o ON c.tg_id = o.courier_tg_id
+                GROUP BY c.tg_id, c.name
+                ORDER BY total DESC
+            """, (today,))
+            return cur.fetchall()
+
+# === Flask маршруты ===
+@flask_app.route("/api/queue")
+def api_queue():
+    rows = get_queue()
+    return jsonify([{"name": row["name"]} for row in rows])
+
+@flask_app.route("/", methods=["GET"])
+def index():
+    queue = get_queue_with_details()
+    stats = get_stats()
+    return render_template("index.html", queue=queue, stats=stats)
+
+@flask_app.route("/assign", methods=["POST"])
+def assign_order():
+    tg_id = request.form.get("tg_id")
+    if tg_id:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO orders (courier_tg_id) VALUES (%s)",
+                    (tg_id,)
+                )
+                cur.execute("DELETE FROM queue WHERE tg_id = %s", (tg_id,))
+                conn.commit()
+    return redirect(url_for("index"))
+
+@flask_app.route("/cashier")
+def cashier():
+    return render_template("cashier.html")
+
+@flask_app.route("/refresh", methods=["POST"])
+def refresh():
+    return redirect(url_for("index"))
+
+# === Aiogram бот ===
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+# === FSM ===
+class Register(StatesGroup):
+    waiting_for_name = State()
+
+# === ХЕНДЛЕРЫ БОТА ===
 @dp.message(Command("start"))
 async def start(m: Message, state: FSMContext):
     await state.clear()
@@ -187,17 +260,18 @@ async def help_btn(c: CallbackQuery):
         parse_mode="Markdown"
     )
     await c.answer()
-# === HEALTHCHECK ROUTE ДЛЯ RAILWAY ===
+
+# === ASGI приложение для aiohttp ===
 async def healthcheck(request):
     return web.json_response({"status": "ok", "bot": "running"})
-    
-async def main():
+
+def create_aiohttp_app():
     app = web.Application()
     
-    # 🩺 Healthcheck для Railway
-    app.router.add_get("/", lambda r: web.Response(text="OK"))
+    # Healthcheck для Railway
+    app.router.add_get("/health", healthcheck)
     
-    # 🔌 Webhook
+    # Webhook для бота
     SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
@@ -205,8 +279,14 @@ async def main():
     ).register(app, path=WEBHOOK_PATH)
     
     setup_application(app, dp, bot=bot)
+    
+    return app
 
-    port = int(os.getenv("PORT", 8000))
+# Для запуска в режиме webhook
+async def run_bot():
+    app = create_aiohttp_app()
+    
+    port = int(os.getenv("PORT", 8080))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
@@ -216,10 +296,11 @@ async def main():
     webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
     await bot.set_webhook(webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
     print(f"✅ Webhook: {webhook_url}")
-
-    await asyncio.Event().wait()
+    
+    return runner
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
-
+    # Если запускается напрямую - запускаем только Flask
+    if os.getenv("FLASK_RUN") or __name__ == "__main__":
+        port = int(os.getenv("PORT", 8080))
+        flask_app.run(host="0.0.0.0", port=port)

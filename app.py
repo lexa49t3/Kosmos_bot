@@ -572,7 +572,7 @@ async def api_call_courier(request: Request) -> Response:
             return web.json_response({"error": f"Invalid JSON format: {str(e)}"}, status=400)
 
         tg_id = data.get("tg_id")
-        
+
         if tg_id is None: # Проверяем на None, а не на пустое значение
             return web.json_response({"error": "Missing tg_id"}, status=400)
 
@@ -582,17 +582,32 @@ async def api_call_courier(request: Request) -> Response:
         except ValueError:
             return web.json_response({"error": "Invalid tg_id format, must be an integer"}, status=400)
 
-        # Получаем имя курьера
+        # Получаем имя курьера из базы
         courier_name = get_courier_name(tg_id)
         if not courier_name:
              logger.warning(f"Попытка вызвать курьера с несуществующим ID {tg_id}")
              return web.json_response({"error": "Courier not found"}, status=404)
 
+        # Пытаемся получить username через бота
+        try:
+            user_info = await bot.get_chat(tg_id)
+            username = user_info.username # Может быть None
+        except Exception as e:
+            logger.warning(f"Не удалось получить информацию о пользователе {tg_id}: {e}")
+            username = None
+
+        # Формируем сообщение
+        if username:
+            message_to_send = f"{courier_name} @{username}"
+        else:
+            # Если username не удалось получить, отправляем только имя
+            message_to_send = courier_name
+
         # Отправляем сообщение в чат
         try:
-            await bot.send_message(chat_id=CALL_CHAT_ID, text=courier_name)
-            logger.info(f"Отправлено сообщение '{courier_name}' в чат {CALL_CHAT_ID} для вызова курьера {tg_id}")
-            return web.json_response({"status": "success", "message": f"Called {courier_name}"})
+            await bot.send_message(chat_id=CALL_CHAT_ID, text=message_to_send)
+            logger.info(f"Отправлено сообщение '{message_to_send}' в чат {CALL_CHAT_ID} для вызова курьера {tg_id}")
+            return web.json_response({"status": "success", "message": f"Called {message_to_send}"})
         except Exception as e:
             logger.error(f"Ошибка при отправке сообщения в чат {CALL_CHAT_ID}: {e}")
             return web.json_response({"error": f"Failed to send message: {str(e)}"}, status=500)

@@ -82,9 +82,10 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS logs (
                         log_id SERIAL PRIMARY KEY,
                         tg_id BIGINT NOT NULL,
-                        action TEXT NOT NULL, -- 'joined_queue', 'left_queue'
+                        courier_name TEXT NOT NULL, -- Добавляем имя
+                        action TEXT NOT NULL, -- 'joined_queue', 'left_queue', 'removed_by_cashier', 'removed_by_daily_clear'
                         timestamp TIMESTAMPTZ DEFAULT NOW(),
-                        FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                        FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE -- Внешний ключ
                     )
                 """)
                 conn.commit()
@@ -144,8 +145,12 @@ def clear_queue():
     """Функция для очистки всей очереди."""
     with get_db() as conn:
         with conn.cursor() as cur:
-            # Сначала получим всех, кто был в очереди
-            cur.execute("SELECT tg_id FROM queue;")
+            # Сначала получим всех, кто был в очереди, вместе с именами
+            cur.execute("""
+                SELECT q.tg_id, c.name
+                FROM queue q
+                JOIN couriers c ON q.tg_id = c.tg_id;
+            """)
             queued_couriers = cur.fetchall()
             
             # Удалим всех
@@ -154,7 +159,7 @@ def clear_queue():
             
             # Залогируем для каждого из них
             for courier_row in queued_couriers:
-                log_action(courier_row['tg_id'], "Ежедневная очистка очереди")
+                log_action(courier_row['tg_id'], courier_row['name'], "Ежедневная очистка очереди") # Передаём name
             
             conn.commit()
             logger.info(f"Очередь очищена. Удалено {affected} записей. Залогированы участники.")
@@ -207,16 +212,16 @@ def get_stats():
             """, (today,))
             return cur.fetchall()
             
-def log_action(tg_id, action):
+def log_action(tg_id, courier_name, action):
     """Записывает действие курьера в базу данных."""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO logs (tg_id, action) VALUES (%s, %s)",
-                (tg_id, action)
+                "INSERT INTO logs (tg_id, courier_name, action) VALUES (%s, %s, %s)",
+                (tg_id, courier_name, action)
             )
             conn.commit()
-        logger.info(f"Лог: Курьер {tg_id} {action}.")
+        logger.info(f"Лог: Курьер {courier_name} (ID: {tg_id}) {action}.")
 
 # === HTML шаблон для кассы ===
 CASHIER_HTML = """
@@ -521,13 +526,25 @@ async def join_btn(c: CallbackQuery):
 
     add_to_queue(tg_id)
     pos = get_queue_position(tg_id)
-    log_action(tg_id, "Встал в очередь")
+    log_action(tg_id, user['name'], "Встал в очередь")
     await c.answer(f"✅ Ты №{pos} в очереди!", show_alert=True)
 
 @dp.callback_query(F.data == "leave")
+@dp.callback_query(F.data == "leave")
 async def leave_btn(c: CallbackQuery):
-    # Логируем попытку выйти из очереди
     tg_id = c.from_user.id
+    # Получаем имя курьера заранее, чтобы использовать в логе
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
+            user = cur.fetchone()
+            if not user:
+                # Если курьер не найден в таблице couriers, логировать нечего
+                await c.answer("❌ Произошла ошибка при выходе из очереди.", show_alert=True)
+                logger.error(f"Курьер {tg_id} не найден в таблице couriers при попытке выйти из очереди.")
+                return
+
+    # Логируем попытку выйти из очереди
     was_in_queue = False
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -539,7 +556,7 @@ async def leave_btn(c: CallbackQuery):
 
     # Логируем действие "ушел из очереди", только если он реально был в очереди
     if was_in_queue:
-        log_action(tg_id, "Вышел из очереди")
+        log_action(tg_id, user['name'], "Вышел из очереди") # Передаём user['name']
 
     await c.answer("Ты вышел из очереди." if changed else "Тебя не было в очереди.", show_alert=True)
 
@@ -697,6 +714,16 @@ async def api_remove_courier(request: Request) -> Response:
         except ValueError:
             return web.json_response({"error": "Invalid tg_id format, must be an integer"}, status=400)
 
+        # Получаем имя курьера
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
+                user = cur.fetchone()
+                if not user:
+                     logger.warning(f"Попытка удалить курьера с несуществующим ID {tg_id}")
+                     return web.json_response({"error": "Courier not found"}, status=404)
+        courier_name = user['name']
+
         # Логируем действие "удален из очереди кассиром"
         # Проверим, был ли курьер в очереди перед удалением
         was_in_queue = False
@@ -710,20 +737,21 @@ async def api_remove_courier(request: Request) -> Response:
 
         if removed > 0:
             logger.info(f"Курьер {tg_id} удален из очереди через веб-интерфейс.")
-            # Логируем действие "удален из очереди кассиром"
-            log_action(tg_id, "Удален из очереди кассиром")
+            # Логируем действие "удален из очереди кассиром", передав имя
+            log_action(tg_id, courier_name, "Удален из очереди кассиром") # Передаём courier_name
             return web.json_response({"status": "success", "removed": removed})
         else:
             # Возвращаем success, даже если курьер не был в очереди
             logger.info(f"Попытка удалить курьера {tg_id}, которого нет в очереди.")
             # Логируем попытку удалить, если он был в очереди
             if was_in_queue:
-                log_action(tg_id, "attempted_removal_not_in_queue")
+                log_action(tg_id, courier_name, "attempted_removal_not_in_queue") # Передаём courier_name
             return web.json_response({"status": "success", "removed": 0})
 
     except Exception as e:
         logger.error(f"Неожиданная ошибка в /api/remove_courier: {e}")
         return web.json_response({"error": "Internal Server Error"}, status=500)
+
 
 
 # --- /МАРШРУТ ---

@@ -5,6 +5,7 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -118,7 +119,7 @@ def remove_from_queue(tg_id):
             return affected
 
 def get_courier_logs(tg_id, limit=50):
-    """Получить последние N логов для курьера."""
+    """Получить последние N логов для курьера с отформатированным временем."""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -128,7 +129,21 @@ def get_courier_logs(tg_id, limit=50):
                 ORDER BY timestamp DESC
                 LIMIT %s
             """, (tg_id, limit))
-            return cur.fetchall()
+            rows = cur.fetchall()
+
+    # Преобразуем timestamp в нужный формат
+    formatted_rows = []
+    tz = ZoneInfo("Europe/Moscow") # Укажите нужный часовой пояс
+    for row in rows:
+        # Преобразуем timestamp (в UTC) в Moscow time и форматируем
+        local_dt = row['timestamp'].astimezone(tz)
+        formatted_time = local_dt.strftime("%H:%M %d.%m.%Y")
+        # Добавляем отформатированное время в строку результата
+        formatted_row = dict(row) # Создаем копию строки
+        formatted_row['formatted_timestamp'] = formatted_time
+        formatted_rows.append(formatted_row)
+
+    return formatted_rows
 
 def get_courier_name(tg_id):
     """Получить имя курьера по его tg_id."""

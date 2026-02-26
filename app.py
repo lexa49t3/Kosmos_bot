@@ -29,6 +29,15 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("❌ DATABASE_URL не установлен в Variables!")
 
+# Новый параметр для ID чата
+CALL_CHAT_ID = os.getenv("CALL_CHAT_ID")
+if not CALL_CHAT_ID:
+    raise RuntimeError("❌ CALL_CHAT_ID не установлен в Variables!")
+try:
+    CALL_CHAT_ID = int(CALL_CHAT_ID)
+except ValueError:
+    raise RuntimeError("❌ CALL_CHAT_ID должен быть числом!")
+
 BASE_URL = os.getenv("BASE_URL", "https://your-app-name.up.railway.app").rstrip("/")
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
@@ -97,6 +106,17 @@ def remove_from_queue(tg_id):
             conn.commit()
             # Возвращаем значение rowcount
             return affected
+
+def get_courier_name(tg_id):
+    """Получить имя курьера по его tg_id."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
+            row = cur.fetchone()
+            if row:
+                return row['name']
+            else:
+                return None
 
 def clear_queue():
     """Функция для очистки всей очереди."""
@@ -223,9 +243,7 @@ CASHIER_HTML = """
         .name {
             flex-grow: 1;
         }
-        .remove-btn {
-            background: #f44336;
-            color: white;
+        .remove-btn, .call-btn {
             border: none;
             border-radius: 8px;
             padding: 8px 12px;
@@ -233,9 +251,21 @@ CASHIER_HTML = """
             font-size: 1rem;
             font-weight: 500;
             transition: background-color 0.2s;
+            margin-left: 8px; /* Отступ между кнопками */
+        }
+        .remove-btn {
+            background: #f44336;
+            color: white;
         }
         .remove-btn:hover {
             background: #d32f2f;
+        }
+        .call-btn {
+            background: #4caf50;
+            color: white;
+        }
+        .call-btn:hover {
+            background: #388e3c;
         }
         .empty {
             text-align: center;
@@ -287,12 +317,13 @@ CASHIER_HTML = """
                     if (data.length === 0) {
                         list.innerHTML = '<li class="empty">Очередь пуста</li>';
                     } else {
-                        // Создаем HTML для каждого элемента очереди с кнопкой удаления
+                        // Создаем HTML для каждого элемента очереди с кнопками удаления и вызова
                         list.innerHTML = data.map((item, index) => 
                             `<li class="queue-item">
                                 <div class="number">${index + 1}</div>
                                 <div class="name">${item.name}</div>
-                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">❌ Удалить</button>
+                                <button class="call-btn" onclick="callCourier(${item.tg_id})">Позвать</button>
+                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">Удалить</button>
                             </li>`
                         ).join('');
                     }
@@ -339,6 +370,33 @@ CASHIER_HTML = """
                 });
             // }
         }
+
+        function callCourier(tgId) {
+            fetch('/api/call_courier', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ tg_id: tgId })
+            })
+            .then(response => {
+                if (response.ok) {
+                    console.log(`Курьер ${tgId} вызван.`);
+                    // Можно добавить визуальный эффект или уведомление об успехе
+                } else {
+                    // Попробуем получить текст ошибки из ответа
+                    return response.text().then(text => {
+                        console.error('Ошибка при вызове курьера:', response.status, text);
+                        alert(`Ошибка при вызове курьера: ${text}`);
+                    });
+                }
+            })
+            .catch(err => {
+                console.error('Ошибка сети при вызове курьера:', err);
+                alert(`Ошибка сети при вызове курьера: ${err.message}`);
+            });
+        }
+
 
         // Обновляем сразу при загрузке
         updateTime();
@@ -503,6 +561,48 @@ async def api_queue(request: Request) -> Response:
         logger.error(f"Ошибка в /api/queue: {e}")
         return web.json_response({"error": "Internal Server Error"}, status=500)
 
+# --- МАРШРУТ ДЛЯ ВЫЗОВА КУРЬЕРА ---
+async def api_call_courier(request: Request) -> Response:
+    try:
+        # Попробуем получить JSON, но обернем в try-except
+        try:
+            data = await request.json()
+        except Exception as e:
+            logger.error(f"Ошибка парсинга JSON в /api/call_courier: {e}")
+            return web.json_response({"error": f"Invalid JSON format: {str(e)}"}, status=400)
+
+        tg_id = data.get("tg_id")
+        
+        if tg_id is None: # Проверяем на None, а не на пустое значение
+            return web.json_response({"error": "Missing tg_id"}, status=400)
+
+        # Проверяем, что tg_id - число
+        try:
+            tg_id = int(tg_id)
+        except ValueError:
+            return web.json_response({"error": "Invalid tg_id format, must be an integer"}, status=400)
+
+        # Получаем имя курьера
+        courier_name = get_courier_name(tg_id)
+        if not courier_name:
+             logger.warning(f"Попытка вызвать курьера с несуществующим ID {tg_id}")
+             return web.json_response({"error": "Courier not found"}, status=404)
+
+        # Отправляем сообщение в чат
+        try:
+            await bot.send_message(chat_id=CALL_CHAT_ID, text=courier_name)
+            logger.info(f"Отправлено сообщение '{courier_name}' в чат {CALL_CHAT_ID} для вызова курьера {tg_id}")
+            return web.json_response({"status": "success", "message": f"Called {courier_name}"})
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения в чат {CALL_CHAT_ID}: {e}")
+            return web.json_response({"error": f"Failed to send message: {str(e)}"}, status=500)
+
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка в /api/call_courier: {e}")
+        return web.json_response({"error": "Internal Server Error"}, status=500)
+
+# --- /МАРШРУТ ---
+
 # --- МАРШРУТ ДЛЯ УДАЛЕНИЯ ЧЕРЕЗ САЙТ ---
 async def api_remove_courier(request: Request) -> Response:
     try:
@@ -569,8 +669,9 @@ async def main():
     
     # API маршруты
     app.router.add_get("/api/queue", api_queue)
-    # Добавляем новый маршрут для удаления через сайт
+    # Добавляем новые маршруты
     app.router.add_post("/api/remove_courier", api_remove_courier)
+    app.router.add_post("/api/call_courier", api_call_courier) # <-- Новый маршрут
     
     # Веб-интерфейс маршруты
     app.router.add_get("/cashier", cashier)
@@ -604,6 +705,9 @@ async def main():
         logger.error(f"❌ Ошибка установки вебхука: {e}")
         raise
 
+    # --- ЗАПУСК ПЛАНИРОВЩИКА ---
+    # Запускаем задачу на очистку очереди каждый день в 01:00 по Екатеринбургу (UTC+5)
+    # Это соответствует 20:00 UTC
     cron_task = aiocron.crontab('0 20 * * *', func=scheduled_queue_clear)
     logger.info("Планировщик задач запущен. Очередь будет очищаться каждый день в 01:00 по Екатеринбургскому времени (20:00 UTC).")
 

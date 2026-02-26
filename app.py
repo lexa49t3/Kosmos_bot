@@ -229,14 +229,21 @@ def get_stats():
             
 def log_action(tg_id, courier_name, action):
     """Записывает действие курьера в базу данных."""
+    tz = ZoneInfo("Asia/Yekaterinburg") # Укажите нужный часовой пояс
+
+    # Получаем текущее время в нужном часовом поясе и форматируем его
+    current_time_local = datetime.now(tz)
+    formatted_time_str = current_time_local.strftime("%H:%M %d.%m.%Y")
+
     with get_db() as conn:
         with conn.cursor() as cur:
+            # Вставляем как tg_id, courier_name, action, так и отформатированное время
             cur.execute(
-                "INSERT INTO logs (tg_id, courier_name, action) VALUES (%s, %s, %s)",
-                (tg_id, courier_name, action)
+                "INSERT INTO logs (tg_id, courier_name, action, formatted_time) VALUES (%s, %s, %s, %s)",
+                (tg_id, courier_name, action, formatted_time_str)
             )
             conn.commit()
-        logger.info(f"Лог: Курьер {courier_name} (ID: {tg_id}) {action}.")
+        logger.info(f"Лог: Курьер {courier_name} (ID: {tg_id}) {action} в {formatted_time_str}.")
 
 # === HTML шаблон для кассы ===
 CASHIER_HTML = """

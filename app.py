@@ -379,48 +379,52 @@ CASHIER_HTML = """
     <style>
     :root {
         /* Светлая тема по умолчанию */
-        --bg-color: #f5f5f5;
-        --container-bg: white;
-        --header-bg: #d32f2f;
-        --header-text: white;
-        --list-item-bg: white;
-        --list-item-text: #212529;
-        --number-bg: #e57373;
-        --number-text: white;
-        --remove-btn-bg: #f44336;
-        --remove-btn-hover: #d32f2f;
-        --remove-btn-text: white;
-        --call-btn-bg: #4caf50;
-        --call-btn-hover: #388e3c;
-        --call-btn-text: white;
-        --empty-text: #757575;
-        --last-update-text: #666;
-        --border-color: #ddd;
-        --lunch-badge-bg: #ffc107;
-        --lunch-badge-text: #212529;
+        --bg: #f8f9fa;
+        --card-bg: #ffffff;
+        --header-bg: #2c3e50;
+        --header-text: #ecf0f1;
+        --text: #2c3e50;
+        --text-secondary: #7f8c8d;
+        --border: #e0e0e0;
+        --accent: #3498db; /* Синий акцент */
+        --accent-hover: #2980b9;
+        --success: #27ae60;
+        --success-hover: #219653;
+        --danger: #e74c3c;
+        --danger-hover: #c0392b;
+        --lunch-bg: #f39c12;
+        --lunch-text: #2c3e50;
+        --number-bg: #3498db;
+        --number-text: #ffffff;
+        --btn-primary-bg: var(--accent);
+        --btn-primary-hover: var(--accent-hover);
+        --btn-secondary-bg: #f1f3f4;
+        --btn-secondary-hover: #e4e7ea;
     }
 
     /* Тёмная тема */
     [data-theme="dark"] {
-        --bg-color: #121212;
-        --container-bg: #1e1e1e;
-        --header-bg: #b71c1c;
-        --header-text: #e0e0e0;
-        --list-item-bg: #2d2d2d;
-        --list-item-text: #e0e0e0;
-        --number-bg: #d32f2f;
-        --number-text: #f5f5f5;
-        --remove-btn-bg: #c62828;
-        --remove-btn-hover: #b71b1b;
-        --remove-btn-text: #f5f5f5;
-        --call-btn-bg: #2e7d32;
-        --call-btn-hover: #1b5e20;
-        --call-btn-text: #f5f5f5;
-        --empty-text: #aaaaaa;
-        --last-update-text: #aaaaaa;
-        --border-color: #444;
-        --lunch-badge-bg: #ff8f00;
-        --lunch-badge-text: #000000;
+       --bg: #121212;
+        --card-bg: #1e1e1e;
+        --header-bg: #1a1a1a;
+        --header-text: #f0f0f0;
+        --text: #e0e0e0;
+        --text-secondary: #95a5a6;
+        --border: #333333;
+        --accent: #3498db;
+        --accent-hover: #2980b9;
+        --success: #2ecc71;
+        --success-hover: #27ae60;
+        --danger: #e74c3c;
+        --danger-hover: #c0392b;
+        --lunch-bg: #f39c12;
+        --lunch-text: #f5f5f5;
+        --number-bg: #3498db;
+        --number-text: #ffffff;
+        --btn-primary-bg: var(--accent);
+        --btn-primary-hover: var(--accent-hover);
+        --btn-secondary-bg: #2d2d2d;
+        --btn-secondary-hover: #3c3c3c;
     }
 
     * {
@@ -430,11 +434,11 @@ CASHIER_HTML = """
     }
 
     body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        background: var(--bg-color);
-        padding: 15px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 16px;
         min-height: 100vh;
-        color: var(--list-item-text); /* Цвет текста по умолчанию */
     }
 
     .container {
@@ -442,117 +446,131 @@ CASHIER_HTML = """
         margin: 0 auto;
     }
 
-    header {
-        text-align: center;
-        margin-bottom: 25px;
-        padding: 15px;
+    /* === HEADER === */
+    .app-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px;
         background: var(--header-bg);
-        color: var(--header-text);
         border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        margin-bottom: 24px;
+        position: relative;
     }
 
-    h1 {
-        font-size: 1.6rem;
+    .header-left h1 {
+        font-size: 1.8rem;
         font-weight: 600;
+        color: var(--header-text);
     }
 
-    .time {
+    .header-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+    }
+
+    .header-time-date {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+    }
+
+    #date-display {
         font-size: 0.9rem;
-        opacity: 0.9;
-        margin-top: 4px;
+        color: var(--text-secondary);
+        font-weight: 500;
     }
 
+    #time-display {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--header-text);
+    }
+
+    .theme-toggle {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--btn-secondary-bg);
+        border: none;
+        color: var(--text);
+        font-size: 1.2rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+        user-select: none;
+    }
+
+    .theme-toggle:hover {
+        background: var(--btn-secondary-hover);
+        transform: scale(1.05);
+    }
+
+    .theme-toggle:active {
+        transform: scale(0.95);
+    }
+
+    /* === QUEUE LIST === */
     .queue-list {
         list-style: none;
     }
 
     .queue-item {
-        background: var(--list-item-bg);
+        background: var(--card-bg);
         margin-bottom: 12px;
         padding: 16px;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border-radius: 12px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.08);
         display: flex;
         align-items: center;
         font-size: 1.3rem;
         font-weight: 500;
-        border: 1px solid var(--border-color); /* Добавим границу для контраста в темной теме */
+        border-left: 4px solid transparent;
+    }
+
+    .queue-item.lunching {
+        border-left-color: var(--lunch-bg);
+        background: rgba(243, 156, 17, 0.05); /* Очень светлый оранжевый фон */
     }
 
     .number {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 42px;
-        height: 42px;
+        width: 44px;
+        height: 44px;
         background: var(--number-bg);
         color: var(--number-text);
         border-radius: 50%;
         margin-right: 16px;
         font-size: 1.4rem;
         flex-shrink: 0;
+        font-weight: 600;
     }
 
     .name {
         flex-grow: 1;
-    }
-
-    .remove-btn, .call-btn {
-        border: none;
-        border-radius: 8px;
-        padding: 8px 12px;
-        cursor: pointer;
-        font-size: 1rem;
         font-weight: 500;
-        transition: background-color 0.2s;
-        margin-left: 8px; /* Отступ между кнопками */
     }
 
-    .remove-btn {
-        background: var(--remove-btn-bg);
-        color: var(--remove-btn-text);
-    }
-
-    .remove-btn:hover {
-        background: var(--remove-btn-hover);
-    }
-
-    .call-btn {
-        background: var(--call-btn-bg);
-        color: var(--call-btn-text);
-    }
-
-    .call-btn:hover {
-        background: var(--call-btn-hover);
-    }
-
-    .empty {
-        text-align: center;
-        color: var(--empty-text);
-        font-size: 1.2rem;
-        padding: 40px 20px;
-    }
-
-    .last-update {
-        text-align: center;
-        color: var(--last-update-text);
-        font-size: 0.85rem;
-        margin-top: 20px;
-    }
-
-    /* Стили для бейджа обеда */
     .lunch-badge {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        background: var(--lunch-badge-bg);
-        color: var(--lunch-badge-text);
-        padding: 4px 8px;
+        background: var(--lunch-bg);
+        color: var(--lunch-text);
+        padding: 4px 10px;
         border-radius: 6px;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         font-weight: 600;
-        margin-right: 8px;
+        margin-right: 12px;
     }
 
     .lunch-badge span:first-child {
@@ -564,16 +582,92 @@ CASHIER_HTML = """
         padding: 2px 6px;
         border-radius: 4px;
         font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
     }
 
-</style>
+    .btn-group {
+        display: flex;
+        gap: 8px;
+    }
+
+    .btn {
+        border: none;
+        border-radius: 8px;
+        padding: 6px 12px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: all 0.2s ease;
+    }
+
+    .btn-call {
+        background: var(--success);
+        color: white;
+    }
+
+    .btn-call:hover {
+        background: var(--success-hover);
+    }
+
+    .btn-remove {
+        background: var(--danger);
+        color: white;
+    }
+
+    .btn-remove:hover {
+        background: var(--danger-hover);
+    }
+
+    .empty {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 1.2rem;
+        padding: 60px 20px;
+        font-style: italic;
+    }
+
+    .last-update {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin-top: 24px;
+    }
+
+    /* === RESPONSIVE === */
+    @media (max-width: 480px) {
+        .header-right {
+            flex-direction: row;
+            gap: 12px;
+        }
+        .header-time-date {
+            flex-direction: row;
+            gap: 12px;
+        }
+        .btn-group {
+            flex-wrap: wrap;
+        }
+    }
+    </style>
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Очередь курьеров</h1>
-            <div class="time" id="current-time">—</div>
-        </header>
+        <header class="app-header">
+    <div class="header-left">
+        <h1>Очередь</h1>
+    </div>
+    <div class="header-right">
+        <div class="header-time-date">
+            <span id="date-display"></span>
+            <span id="time-display"></span>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" title="Переключить тему">
+            🌙
+        </button>
+    </div>
+</header>
 
         <ul class="queue-list" id="queue-list">
             <!-- Сюда подгрузится очередь -->
@@ -586,10 +680,20 @@ CASHIER_HTML = """
 
     <script>
         function updateTime() {
-            const now = new Date();
-            document.getElementById('current-time').textContent = 
-                now.toLocaleTimeString('ru-RU', { hour12: false });
-        }
+    const now = new Date();
+    
+    // Форматируем дату как DD.MM.YYYY
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    document.getElementById('date-display').textContent = `${day}.${month}.${year}`;
+
+    // Форматируем время как HH:MM:SS
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    document.getElementById('time-display').textContent = `${hours}:${minutes}:${seconds}`;
+}
 
         function formatTime(seconds) {
             const mins = Math.floor(seconds / 60);
@@ -626,7 +730,7 @@ CASHIER_HTML = """
 
                         // Генерируем HTML для обедающих (с кнопками)
                         const lunchHtml = lunchItems.map(item => 
-    `<li class="queue-item" style="background-color: #f8f9fa; border-left: 4px solid #ffc107;">
+    `<li class="queue-item"border-left: 4px solid #ffc107;">
         <div class="number">-</div>
         <div class="name">${item.name}</div>
         <div class="lunch-badge">
@@ -739,39 +843,27 @@ CASHIER_HTML = """
         // Обновляем таймеры обеда чаще
         setInterval(updateLunchTimers, 1000);
 
-         function toggleTheme() {
-        const body = document.body;
+        // --- Тема ---
+document.addEventListener('DOMContentLoaded', () => {
+    const body = document.body;
+    const toggleBtn = document.getElementById('theme-toggle');
+
+    // Загружаем сохранённую тему
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    body.setAttribute('data-theme', savedTheme);
+    toggleBtn.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+
+    // Переключение темы
+    toggleBtn.addEventListener('click', () => {
         const currentTheme = body.getAttribute('data-theme');
-        if (currentTheme === 'dark') {
-            body.setAttribute('data-theme', 'light');
-            localStorage.setItem('theme', 'light'); // Сохраняем предпочтение
-        } else {
-            body.setAttribute('data-theme', 'dark');
-            localStorage.setItem('theme', 'dark');
-        }
-    }
-
-    // Проверяем сохранённую тему при загрузке
-    document.addEventListener('DOMContentLoaded', () => {
-        const savedTheme = localStorage.getItem('theme') || 'light'; // По умолчанию светлая
-        document.body.setAttribute('data-theme', savedTheme);
-
-        // Создаём кнопку переключения темы и добавляем её в заголовок
-        const themeToggleBtn = document.createElement('button');
-        themeToggleBtn.type = 'button';
-        themeToggleBtn.textContent = savedTheme === 'dark' ? '☀️ Светлая' : '🌙 Тёмная';
-        themeToggleBtn.style.position = 'absolute';
-        themeToggleBtn.style.top = '10px';
-        themeToggleBtn.style.right = '10px';
-        themeToggleBtn.style.padding = '5px 10px';
-        themeToggleBtn.style.fontSize = '0.8rem';
-        themeToggleBtn.style.cursor = 'pointer';
-        themeToggleBtn.onclick = toggleTheme;
-
-        const header = document.querySelector('header');
-        header.style.position = 'relative'; // Убедимся, что позиционирование относительно заголовка
-        header.appendChild(themeToggleBtn);
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        body.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        toggleBtn.textContent = newTheme === 'dark' ? '☀️' : '🌙';
     });
+});
+
+    
          
          // Обнова
     const CURRENT_VERSION = "2";

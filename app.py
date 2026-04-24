@@ -866,7 +866,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
          
          // Обнова
-    const CURRENT_VERSION = "2";
+    const CURRENT_VERSION = "3";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {

@@ -14,6 +14,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from aiohttp.web import Request, Response
+from datetime import datetime, timedelta
 # --- Добавляем aiocron ---
 import aiocron
 
@@ -44,14 +45,6 @@ WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
 
 # === БАЗА ===
-def get_db():
-    url = DATABASE_URL.replace("postgresql://", "postgres://")
-    try:
-        return psycopg2.connect(url, cursor_factory=RealDictCursor)
-    except Exception as e:
-        logger.error(f"Ошибка подключения к БД: {e}")
-        raise
-
 def init_db():
     try:
         with get_db() as conn:
@@ -79,16 +72,29 @@ def init_db():
                         FOREIGN KEY (courier_tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
                     )
                 """)
+                # --- Таблица для логов ---
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS logs (
                         log_id SERIAL PRIMARY KEY,
                         tg_id BIGINT NOT NULL,
-                        courier_name TEXT NOT NULL, -- Добавляем имя
-                        action TEXT NOT NULL, -- 'joined_queue', 'left_queue', 'removed_by_cashier', 'removed_by_daily_clear'
+                        courier_name TEXT NOT NULL DEFAULT '',
+                        action TEXT NOT NULL, -- 'joined_queue', 'left_queue', 'removed_by_cashier', 'removed_by_daily_clear', 'started_lunch', 'ended_lunch'
                         timestamp TIMESTAMPTZ DEFAULT NOW(),
-                        FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE -- Внешний ключ
+                        FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
                     )
                 """)
+                # --- НОВАЯ ТАБЛИЦА ДЛЯ СЕАНСОВ ОБЕДА ---
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS lunch_sessions (
+                        session_id SERIAL PRIMARY KEY,
+                        tg_id BIGINT NOT NULL,
+                        start_time TIMESTAMPTZ DEFAULT NOW(),
+                        end_time TIMESTAMPTZ, -- NULL, если не закончен
+                        date DATE GENERATED ALWAYS AS (start_time::date) STORED, -- Для удобства фильтрации по дню
+                        FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
+                    )
+                """)
+                # --- /НОВАЯ ТАБЛИЦА ---
                 conn.commit()
         logger.info("База данных инициализирована/проверена успешно.")
     except Exception as e:
@@ -180,16 +186,31 @@ def clear_queue():
             logger.info(f"Очередь очищена. Удалено {affected} записей. Залогированы участники.")
             return affected
 
-def get_queue():
+def get_queue_and_lunching():
+    """Получает очередь и курьеров на обеде."""
     with get_db() as conn:
         with conn.cursor() as cur:
+            # Основная очередь
             cur.execute("""
-                SELECT c.name, c.tg_id
+                SELECT c.name, c.tg_id, q.join_time as time_info, 'queue' as source
                 FROM queue q
                 JOIN couriers c ON q.tg_id = c.tg_id
-                ORDER BY q.join_time
+                ORDER BY q.join_time ASC
             """)
-            return cur.fetchall()
+            queue_rows = cur.fetchall()
+
+            # Курьеры на обеде
+            lunching_rows = get_lunching_couriers()
+            # Добавляем признак источника
+            lunching_rows_with_source = [
+                {**row, 'source': 'lunch'} for row in lunching_rows
+            ]
+
+    # Объединяем и сортируем: сначала очередь, потом обедающие
+    all_rows = queue_rows + lunching_rows_with_source
+    # Сортировка: сначала очередь, потом обедающие по времени начала обеда
+    all_rows.sort(key=lambda x: (x['source'] == 'lunch', x['time_info']))
+    return all_rows
 
 def get_queue_with_details():
     with get_db() as conn:
@@ -244,6 +265,79 @@ def log_action(tg_id, courier_name, action):
             )
             conn.commit()
         logger.info(f"Лог: Курьер {courier_name} (ID: {tg_id}) {action} в {formatted_time_str}.")
+
+#Функция обеда
+def get_current_lunch_session(tg_id):
+    """Проверяет, находится ли курьер на обеде, и возвращает сессию, если да."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT session_id, start_time, end_time
+                FROM lunch_sessions
+                WHERE tg_id = %s AND end_time IS NULL
+                ORDER BY start_time DESC
+                LIMIT 1
+            """, (tg_id,))
+            return cur.fetchone()
+
+def get_lunch_count_today(tg_id):
+    """Возвращает количество сеансов обеда за сегодня."""
+    today = datetime.now().date()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) as count
+                FROM lunch_sessions
+                WHERE tg_id = %s AND date = %s
+            """, (tg_id, today))
+            res = cur.fetchone()
+            return res['count'] if res else 0
+
+def start_lunch_session(tg_id, courier_name):
+    """Создаёт новую сессию обеда."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO lunch_sessions (tg_id) VALUES (%s)
+                RETURNING session_id
+            """, (tg_id,))
+            session_id = cur.fetchone()['session_id']
+            conn.commit()
+            logger.info(f"Курьер {courier_name} (ID: {tg_id}) начал обед (ID сессии: {session_id}).")
+            log_action(tg_id, courier_name, "started_lunch")
+            return session_id
+
+def end_lunch_session(session_id, tg_id, courier_name):
+    """Завершает сессию обеда."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE lunch_sessions
+                SET end_time = NOW()
+                WHERE session_id = %s AND tg_id = %s AND end_time IS NULL
+            """, (session_id, tg_id))
+            updated = cur.rowcount
+            conn.commit()
+            if updated > 0:
+                logger.info(f"Курьер {courier_name} (ID: {tg_id}) закончил обед (ID сессии: {session_id}).")
+                log_action(tg_id, courier_name, "ended_lunch")
+                return True
+            else:
+                logger.warning(f"Попытка завершить несуществующую или уже завершённую сессию обеда {session_id} для курьера {tg_id}.")
+                return False
+
+def get_lunching_couriers():
+    """Получает список курьеров, находящихся на обеде."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.name, ls.tg_id, ls.start_time
+                FROM lunch_sessions ls
+                JOIN couriers c ON ls.tg_id = c.tg_id
+                WHERE ls.end_time IS NULL
+                ORDER BY ls.start_time ASC -- Сортировка по времени начала
+            """)
+            return cur.fetchall()
 
 # === HTML шаблон для кассы ===
 CASHIER_HTML = """
@@ -385,17 +479,30 @@ CASHIER_HTML = """
                     const updateTimeEl = document.getElementById('update-time');
                     
                     if (data.length === 0) {
-                        list.innerHTML = '<li class="empty">Очередь пуста</li>';
+                        list.innerHTML = '<li class="empty">sstream Очередь пуста</li>';
                     } else {
-                        // Создаем HTML для каждого элемента очереди с кнопками удаления и вызова
-                        list.innerHTML = data.map((item, index) => 
+                        // Разделяем очередь и обедающих
+                        const queueItems = data.filter(item => item.source === 'queue');
+                        const lunchItems = data.filter(item => item.source === 'lunch');
+
+                        // Генерируем HTML для очереди
+                        const queueHtml = queueItems.map((item, index) => 
                             `<li class="queue-item">
                                 <div class="number">${index + 1}</div>
                                 <div class="name">${item.name}</div>
-                                <button class="call-btn" onclick="callCourier(${item.tg_id})">Позвать</button>
-                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">Удалить</button>
                             </li>`
                         ).join('');
+
+                        // Генерируем HTML для обедающих
+                        const lunchHtml = lunchItems.map(item => 
+                            `<li class="queue-item" style="background-color: #e0e0e0;"> <!-- Стиль для обедающего -->
+                                <div class="number">-</div>
+                                <div class="name">${item.name} (обед)</div>
+                                <div class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</div>
+                            </li>`
+                        ).join('');
+
+                        list.innerHTML = queueHtml + lunchHtml;
                     }
 
                     const now = new Date();
@@ -412,6 +519,24 @@ CASHIER_HTML = """
                 });
         }
 
+        // Функция для обновления таймеров обеда
+        function updateLunchTimers() {
+            document.querySelectorAll('.lunch-timer').forEach(timerElement => {
+                const tgId = timerElement.getAttribute('data-tg-id');
+                // Найдем соответствующий элемент данных в последнем обновлении
+                // (Это менее эффективно, чем хранить данные в JS, но проще для начальной реализации)
+                fetch('/api/queue')
+                    .then(response => response.json())
+                    .then(data => {
+                        const item = data.find(d => d.tg_id == tgId && d.source === 'lunch');
+                        if (item) {
+                            timerElement.textContent = formatTime(item.remaining_seconds);
+                        }
+                    })
+                    .catch(console.error);
+            });
+        }
+        
         function removeCourier(tgId) {
             // Убрано подтверждение
             // if (confirm(`Вы уверены, что хотите удалить курьера с ID ${tgId} из очереди?`)) {
@@ -475,6 +600,8 @@ CASHIER_HTML = """
         // Автообновление
         setInterval(updateTime, 1000);
         setInterval(updateQueue, 5000);
+        // Обновляем таймеры обеда чаще
+        setInterval(updateLunchTimers, 1000);
     </script>
 </body>
 </html>
@@ -501,13 +628,14 @@ async def start(m: Message, state: FSMContext):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+            [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
         await m.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
     else:
         await m.answer("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
-
+ё1    
 @dp.message(Register.waiting_for_name)
 async def process_name(m: Message, state: FSMContext):
     name = m.text.strip()
@@ -626,6 +754,7 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+            [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
         # Редактируем текущее сообщение (из которого нажали кнопку "Назад")
@@ -648,15 +777,203 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
 
 # --- /ИЗМЕНЕННЫЙ ХЕНДЛЕР ---
 
+# --- НОВЫЙ ХЕНДЛЕР ДЛЯ КНОПКИ ОБЕД ---
+@dp.callback_query(F.data == "lunch_start")
+async def lunch_start_request(c: CallbackQuery, state: FSMContext):
+    tg_id = c.from_user.id
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
+            user = cur.fetchone()
+            if not user:
+                await c.answer("❌ Произошла ошибка.", show_alert=True)
+                return
+            courier_name = user['name']
+
+    # Проверяем, не на обеде ли уже
+    if get_current_lunch_session(tg_id):
+        await c.answer("❌ Вы уже на обеде!", show_alert=True)
+        return
+    # Проверяем лимит обедов за день (2)
+    lunch_count = get_lunch_count_today(tg_id)
+    if lunch_count >= 2:
+        await c.answer("❌ Вы уже использовали обеды на сегодня (2 раза).", show_alert=True)
+        return
+    # Проверяем, в очереди ли курьер
+    is_in_queue = False
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM queue WHERE tg_id = %s", (tg_id,))
+            if cur.fetchone():
+                is_in_queue = True
+    # Отправляем предупреждение и спрашиваем подтверждение
+    confirmation_message = f"🍽️ Вы хотите уйти на обед?\n\n"
+    if is_in_queue:
+        confirmation_message += "⚠️ Вы покинете очередь.\n"
+    confirmation_message += "⏱️ Обед длится 20 минут. После этого вы автоматически встанете в очередь.\n\n"
+    confirmation_message += "Нажмите 'Да, уйти на обед' для подтверждения."
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, уйти на обед", callback_data="lunch_confirm_yes")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="lunch_confirm_no")]
+    ])
+    await c.message.edit_text(confirmation_message, reply_markup=kb)
+    await state.set_state(ConfirmLunch.waiting_for_confirmation)
+    await c.answer()
+
+@dp.callback_query(StateFilter(ConfirmLunch.waiting_for_confirmation), F.data == "lunch_confirm_yes")
+async def lunch_start_confirm(c: CallbackQuery, state: FSMContext):
+    tg_id = c.from_user.id
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
+            user = cur.fetchone()
+            if not user:
+                await c.answer("❌ Произошла ошибка.", show_alert=True)
+                await state.clear()
+                return
+            courier_name = user['name']
+    # Проверяем, не на обеде ли уже (на всякий случай)
+    if get_current_lunch_session(tg_id):
+        await c.answer("❌ Вы уже на обеде!", show_alert=True)
+        await state.clear()
+        return
+    # Удаляем из очереди (если был)
+    was_in_queue = remove_from_queue(tg_id)
+    # Создаём сессию обеда
+    session_id = start_lunch_session(tg_id, courier_name)
+    # Отредактируем сообщение: только кнопка "С обеда"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ С обеда", callback_data="lunch_end")]
+    ])
+    await c.message.edit_text(f"🍽️ Вы на обеде! Осталось времени: 20:00", reply_markup=kb)
+    # Запускаем задачу на 20 минут
+    asyncio.create_task(auto_return_from_lunch(session_id, tg_id, courier_name))
+    await state.clear()
+    await c.answer()
+
+@dp.callback_query(StateFilter(ConfirmLunch.waiting_for_confirmation), F.data == "lunch_confirm_no")
+async def lunch_start_cancel(c: CallbackQuery, state: FSMContext):
+    # Возвращаем к основному меню
+    await state.clear()
+    await back_to_menu(c, state) # Используем существующую функцию
+
+@dp.callback_query(F.data == "lunch_end")
+async def lunch_end_manual(c: CallbackQuery):
+    tg_id = c.from_user.id
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
+            user = cur.fetchone()
+            if not user:
+                await c.answer("❌ Произошла ошибка.", show_alert=True)
+                return
+            courier_name = user['name']
+
+    session_info = get_current_lunch_session(tg_id)
+    if not session_info:
+        await c.answer("❌ Вы не на обеде!", show_alert=True)
+        return
+
+    session_id = session_info['session_id']
+    ended = end_lunch_session(session_id, tg_id, courier_name)
+
+    if ended:
+        # Возвращаем в очередь
+        add_to_queue(tg_id)
+        pos = get_queue_position(tg_id)
+
+        # Отредактируем сообщение: обычные кнопки
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+            [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+            [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # Возвращаем кнопку обеда
+            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+        ])
+        await c.message.edit_text(f"✅ Вы вернулись с обеда и встали в очередь. Ваша позиция: {pos}", reply_markup=kb)
+    else:
+        # Сессия уже была завершена (например, автоматически)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+            [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+            [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")],
+            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+        ])
+        await c.message.edit_text("❌ Вы не на обеде!", reply_markup=kb)
+
+    await c.answer()
+
+async def auto_return_from_lunch(session_id, tg_id, courier_name):
+    """Фоновая задача, которая возвращает курьера в очередь через 20 минут."""
+    await asyncio.sleep(20 * 60) # 20 минут в секундах
+
+    # Проверяем, не завершена ли сессия вручную
+    session_info = get_current_lunch_session(tg_id)
+    if session_info and session_info['session_id'] == session_id:
+        # Сессия всё ещё активна, завершаем её автоматически
+        ended = end_lunch_session(session_id, tg_id, courier_name)
+        if ended:
+            # Возвращаем в очередь
+            add_to_queue(tg_id)
+            pos = get_queue_position(tg_id)
+            logger.info(f"Курьер {courier_name} (ID: {tg_id}) автоматически вернулся в очередь после обеда. Позиция: {pos}.")
+
+            # Отправляем сообщение курьеру (опционально)
+            try:
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+                    [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+                    [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")],
+                    [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+                ])
+                await bot.edit_message_text(
+                    chat_id=tg_id,
+                    message_id=..., # Нужно хранить ID сообщения об обеде, чтобы его отредактировать
+                    text=f"⏱️ Обед закончился! Вы автоматически встали в очередь. Ваша позиция: {pos}",
+                    reply_markup=kb
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось отредактировать сообщение после авто-возврата из обеда для {tg_id}: {e}")
+                # Альтернатива: отправить новое сообщение
+                try:
+                    await bot.send_message(
+                        chat_id=tg_id,
+                        text=f"⏱️ Обед закончился! Вы автоматически встали в очередь. Ваша позиция: {pos}"
+                    )
+                except Exception as e2:
+                    logger.error(f"Не удалось отправить сообщение после авто-возврата из обеда для {tg_id}: {e2}")
+
 # === AIOHTTP маршруты ===
 async def api_queue(request: Request) -> Response:
     try:
-        rows = get_queue()
-        # Возвращаем список объектов с name и tg_id
-        return web.json_response([{"name": row["name"], "tg_id": row["tg_id"]} for row in rows])
+        rows = get_queue_and_lunching()
+        # Возвращаем список объектов с name, tg_id и source
+        response_data = []
+        for row in rows:
+            item = {"name": row["name"], "tg_id": row["tg_id"]}
+            if row["source"] == 'lunch':
+                # Добавляем признак обеда и оставшееся время (в секундах)
+                start_time = row["time_info"]
+                elapsed = (datetime.now(start_time.tzinfo) - start_time).total_seconds()
+                remaining_seconds = max(0, 20 * 60 - elapsed) # 20 минут = 1200 секунд
+                item["source"] = "lunch"
+                item["remaining_seconds"] = int(remaining_seconds)
+            else:
+                item["source"] = "queue"
+            response_data.append(item)
+
+        return web.json_response(response_data)
     except Exception as e:
         logger.error(f"Ошибка в /api/queue: {e}")
         return web.json_response({"error": "Internal Server Error"}, status=500)
+
+# === FSM ===
+class Register(StatesGroup):
+    waiting_for_name = State()
+
+# --- НОВОЕ СОСТОЯНИЕ ---
+class ConfirmLunch(StatesGroup):
+    waiting_for_confirmation = State()
+# --- /НОВОЕ СОСТОЯНИЕ ---
 
 # --- МАРШРУТ ДЛЯ ВЫЗОВА КУРЬЕРА ---
 async def api_call_courier(request: Request) -> Response:
@@ -775,9 +1092,7 @@ async def api_remove_courier(request: Request) -> Response:
         return web.json_response({"error": "Internal Server Error"}, status=500)
 
 
-
 # --- /МАРШРУТ ---
-
 async def root_handler(request: Request) -> Response:
     return web.Response(text=CASHIER_HTML, content_type="text/html")
 
@@ -787,13 +1102,10 @@ async def cashier(request: Request) -> Response:
 async def healthcheck(request: Request) -> Response:
     return web.json_response({"status": "ok", "bot": "running"})
 
-# --- НОВАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ОЧЕРЕДИ ---
 async def scheduled_queue_clear():
     """Асинхронная функция, вызываемая по расписанию."""
     logger.info("Запуск запланированной очистки очереди...")
     clear_queue()
-
-# --- /НОВАЯ ФУНКЦИЯ ---
 
 # === Основная функция запуска ===
 async def main():

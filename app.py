@@ -622,6 +622,10 @@ dp = Dispatcher()
 class Register(StatesGroup):
     waiting_for_name = State()
 
+# --- НОВОЕ СОСТОЯНИЕ ---
+class ConfirmLunch(StatesGroup):
+    waiting_for_confirmation = State()
+
 # === ХЕНДЛЕРЫ БОТА ===
 @dp.message(Command("start"))
 async def start(m: Message, state: FSMContext):
@@ -852,7 +856,7 @@ async def lunch_start_confirm(c: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ С обеда", callback_data="lunch_end")]
     ])
-    await c.message.edit_text(f"🍽️ Вы на обеде! Осталось времени: 20:00", reply_markup=kb)
+    await c.message.edit_text(f"🍽️ Вы на обеде, осталось 20 минут!", reply_markup=kb)
     # Запускаем задачу на 20 минут
     asyncio.create_task(auto_return_from_lunch(session_id, tg_id, courier_name))
     await state.clear()
@@ -972,15 +976,6 @@ async def api_queue(request: Request) -> Response:
     except Exception as e:
         logger.error(f"Ошибка в /api/queue: {e}")
         return web.json_response({"error": "Internal Server Error"}, status=500)
-
-# === FSM ===
-class Register(StatesGroup):
-    waiting_for_name = State()
-
-# --- НОВОЕ СОСТОЯНИЕ ---
-class ConfirmLunch(StatesGroup):
-    waiting_for_confirmation = State()
-# --- /НОВОЕ СОСТОЯНИЕ ---
 
 # --- МАРШРУТ ДЛЯ ВЫЗОВА КУРЬЕРА ---
 async def api_call_courier(request: Request) -> Response:

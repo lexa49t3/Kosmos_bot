@@ -472,6 +472,29 @@ CASHIER_HTML = """
             font-size: 0.85rem;
             margin-top: 20px;
         }
+        .lunch-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ffc107; /* Жёлтый (цвет обеда) */
+    color: #212529; /* Тёмный текст */
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+.lunch-badge span:first-child {
+    white-space: nowrap;
+}
+
+.lunch-badge .lunch-timer {
+    background: rgba(0,0,0,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+}
     </style>
 </head>
 <body>
@@ -532,14 +555,17 @@ CASHIER_HTML = """
 
                         // Генерируем HTML для обедающих (с кнопками)
                         const lunchHtml = lunchItems.map(item => 
-                            `<li class="queue-item" style="background-color: #e0e0e0;"> <!-- Стиль для обедающего -->
-                                <div class="number">-</div>
-                                <div class="name">${item.name} (обед)</div>
-                                <div class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</div>
-                                <button class="call-btn" onclick="callCourier(${item.tg_id})">📞 Позвать</button>
-                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">❌ Удалить</button>
-                            </li>`
-                        ).join('');
+    `<li class="queue-item" style="background-color: #f8f9fa; border-left: 4px solid #ffc107;">
+        <div class="number">-</div>
+        <div class="name">${item.name}</div>
+        <div class="lunch-badge">
+            <span>Обед</span>
+            <span class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</span>
+        </div>
+        <button class="call-btn" onclick="callCourier(${item.tg_id})">Позвать</button>
+        <button class="remove-btn" onclick="removeCourier(${item.tg_id})">Удалить</button>
+    </li>`
+).join('');
 
                         list.innerHTML = queueHtml + lunchHtml;
                     }
@@ -554,7 +580,7 @@ CASHIER_HTML = """
                 .catch(err => {
                     console.error('Ошибка загрузки очереди:', err);
                     document.getElementById('queue-list').innerHTML = 
-                        '<li class="empty">⚠️ Ошибка загрузки</li>';
+                        '<li class="empty">⚠️ Ошибка загрузки, напишите Алексею))</li>';
                 });
         }
 

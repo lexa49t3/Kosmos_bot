@@ -474,7 +474,7 @@ CASHIER_HTML = """
         }
         .lunch-badge {
     display: inline-flex;
-    align-items: center;
+    align-items: baseline;
     gap: 6px;
     background: #ffc107; /* Жёлтый (цвет обеда) */
     color: #212529; /* Тёмный текст */
@@ -562,8 +562,8 @@ CASHIER_HTML = """
             <span>Обед</span>
             <span class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</span>
         </div>
-        <button class="call-btn" onclick="callCourier(${item.tg_id})">Позвать</button>
-        <button class="remove-btn" onclick="removeCourier(${item.tg_id})">Удалить</button>
+        <button class="call-btn" onclick="callCourier(${item.tg_id})">🐾</button>
+        <button class="remove-btn" onclick="removeCourier(${item.tg_id})">🗑️</button>
     </li>`
 ).join('');
 
@@ -668,8 +668,8 @@ CASHIER_HTML = """
         // Обновляем таймеры обеда чаще
         setInterval(updateLunchTimers, 1000);
 
-         // Автоматическое обновление при изменении версии
-    const CURRENT_VERSION = "20260425"; // Изменяйте эту строку при каждом деплое (год-месяц-число)
+         // Обнова
+    const CURRENT_VERSION = "1";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {

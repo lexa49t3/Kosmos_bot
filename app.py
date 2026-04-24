@@ -877,7 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
          
          // Обнова
-    const CURRENT_VERSION = "3.5";
+    const CURRENT_VERSION = "3.6";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {
@@ -1438,7 +1438,6 @@ async def api_call_courier(request: Request) -> Response:
 # --- МАРШРУТ ДЛЯ УДАЛЕНИЯ ЧЕРЕЗ САЙТ ---
 async def api_remove_courier(request: Request) -> Response:
     try:
-        # Попробуем получить JSON, но обернем в try-except
         try:
             data = await request.json()
         except Exception as e:
@@ -1446,28 +1445,32 @@ async def api_remove_courier(request: Request) -> Response:
             return web.json_response({"error": f"Invalid JSON format: {str(e)}"}, status=400)
 
         tg_id = data.get("tg_id")
-
-        if tg_id is None: # Проверяем на None, а не на пустое значение
+        if tg_id is None:
             return web.json_response({"error": "Missing tg_id"}, status=400)
-
-        # Проверяем, что tg_id - число
         try:
             tg_id = int(tg_id)
         except ValueError:
             return web.json_response({"error": "Invalid tg_id format, must be an integer"}, status=400)
 
-        # Получаем имя курьера
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
                 user = cur.fetchone()
                 if not user:
-                     logger.warning(f"Попытка удалить курьера с несуществующим ID {tg_id}")
-                     return web.json_response({"error": "Courier not found"}, status=404)
+                    return web.json_response({"error": "Courier not found"}, status=404)
         courier_name = user['name']
 
-        # Логируем действие "удален из очереди кассиром"
-        # Проверим, был ли курьер в очереди перед удалением
+        # --- НОВАЯ ЛОГИКА: Проверяем, на обеде ли курьер ---
+        session_info = get_current_lunch_session(tg_id)
+        was_on_lunch = False
+        if session_info:
+            # Завершаем сессию обеда
+            ended = end_lunch_session(session_info['session_id'], tg_id, courier_name)
+            if ended:
+                was_on_lunch = True
+                logger.info(f"Курьер {courier_name} (ID: {tg_id}) был на обеде и сессия завершена.")
+
+        # --- Удаляем из очереди (если есть) ---
         was_in_queue = False
         with get_db() as conn:
             with conn.cursor() as cur:
@@ -1477,18 +1480,21 @@ async def api_remove_courier(request: Request) -> Response:
 
         removed = remove_from_queue(tg_id)
 
-        if removed > 0:
-            logger.info(f"Курьер {tg_id} удален из очереди через веб-интерфейс.")
-            # Логируем действие "удален из очереди кассиром", передав имя
-            log_action(tg_id, courier_name, "Удален из очереди кассиром") # Передаём courier_name
-            return web.json_response({"status": "success", "removed": removed})
+        # --- Логируем действие ---
+        if was_on_lunch and was_in_queue:
+            log_action(tg_id, courier_name, "Удалён с обеда и из очереди")
+        elif was_on_lunch:
+            log_action(tg_id, courier_name, "Удалён с обеда")
+        elif was_in_queue:
+            log_action(tg_id, courier_name, "Удалён из очереди")
         else:
-            # Возвращаем success, даже если курьер не был в очереди
-            logger.info(f"Попытка удалить курьера {tg_id}, которого нет в очереди.")
-            # Логируем попытку удалить, если он был в очереди
-            if was_in_queue:
-                log_action(tg_id, courier_name, "attempted_removal_not_in_queue") # Передаём courier_name
-            return web.json_response({"status": "success", "removed": 0})
+            log_action(tg_id, courier_name, "Попытка удаления: не в очереди и не на обеде")
+
+        # Возвращаем результат
+        if removed > 0 or was_on_lunch:
+            return web.json_response({"status": "success", "removed": removed, "was_on_lunch": was_on_lunch})
+        else:
+            return web.json_response({"status": "success", "removed": 0, "was_on_lunch": False})
 
     except Exception as e:
         logger.error(f"Неожиданная ошибка в /api/remove_courier: {e}")

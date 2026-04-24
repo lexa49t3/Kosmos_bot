@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.exceptions import TelegramBadRequest
 from aiohttp import web
 from aiohttp.web import Request, Response
 from datetime import datetime, timedelta
@@ -766,14 +767,21 @@ async def join_btn(c: CallbackQuery, state: FSMContext): # Добавляем st
         [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
         [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
     ])
-    # Редактируем *текущее* сообщение (в котором была кнопка "Встать")
-    await bot.edit_message_text(
-        chat_id=c.from_user.id,
-        message_id=c.message.message_id,
-        text=f"Привет, {user['name']}! 👋\nВыбери действие:", # Используем имя из запроса выше
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    try:
+        await bot.edit_message_text(
+            chat_id=c.from_user.id,
+            message_id=c.message.message_id,
+            text=f"Привет, {user['name']}! 👋\nВыбери действие:", # Используем имя из запроса выше
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" in e.message:
+            # Сообщение не изменилось, это не ошибка, просто логируем
+            logger.info(f"Сообщение для пользователя {tg_id} не изменилось при попытке редактирования в join_btn.")
+        else:
+            # Другая ошибка TelegramBadRequest
+            logger.error(f"Ошибка Telegram при редактировании сообщения в join_btn для {tg_id}: {e}")
 
 @dp.callback_query(F.data == "leave")
 async def leave_btn(c: CallbackQuery, state: FSMContext):
@@ -808,17 +816,22 @@ async def leave_btn(c: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
         [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
-        [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
+        [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")],
         [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
     ])
-    # Редактируем *текущее* сообщение (в котором была кнопка "Выйти")
-    await bot.edit_message_text(
-        chat_id=c.from_user.id,
-        message_id=c.message.message_id,
-        text=f"Привет, {user['name']}! 👋\nВыбери действие:", # Используем имя из запроса выше
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+     try:
+        await bot.edit_message_text(
+            chat_id=c.from_user.id,
+            message_id=c.message.message_id,
+            text=f"Привет, {user['name']}! 👋\nВыбери действие:", # Используем имя из запроса выше
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" in e.message:
+            logger.info(f"Сообщение для пользователя {tg_id} не изменилось при попытке редактирования в leave_btn.")
+        else:
+            logger.error(f"Ошибка Telegram при редактировании сообщения в leave_btn для {tg_id}: {e}")
 
 # --- ИЗМЕНЕННЫЙ ХЕНДЛЕР show_queue (редактирует текущее сообщение) ---
 @dp.callback_query(F.data == "show_queue")
@@ -867,7 +880,7 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
         # Редактируем текущее сообщение (из которого нажали кнопку "Назад")
-        try:
+         try:
             await bot.edit_message_text(
                 chat_id=c.from_user.id,
                 message_id=c.message.message_id, # ID текущего сообщения
@@ -875,10 +888,13 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
                 reply_markup=kb,
                 parse_mode="Markdown"
             )
-        except Exception as e:
-            # Если не удалось отредактировать, отправим новое
-            logger.warning(f"Не удалось отредактировать сообщение с меню: {e}")
-            await c.message.edit_text(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "message is not modified" in e.message:
+                logger.info(f"Сообщение для пользователя {c.from_user.id} не изменилось при попытке редактирования в back_to_menu.")
+            else:
+                logger.error(f"Ошибка Telegram при редактировании сообщения в back_to_menu для {c.from_user.id}: {e}")
+                # Если редактирование не удалось, отправим новое сообщение
+                await c.message.edit_text(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb, parse_mode="Markdown")
     else:
         await c.message.edit_text("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
@@ -903,10 +919,10 @@ async def lunch_start_request(c: CallbackQuery, state: FSMContext):
         await c.answer("❌ Вы уже на обеде!", show_alert=True)
         return
     # Проверяем лимит обедов за день (2)
-    lunch_count = get_lunch_count_today(tg_id)
-    if lunch_count >= 2:
-        await c.answer("❌ Вы уже использовали обеды на сегодня (2 раза).", show_alert=True)
-        return
+    #lunch_count = get_lunch_count_today(tg_id)
+    #if lunch_count >= 2:
+    #    await c.answer("❌ Вы уже использовали обеды на сегодня (2 раза).", show_alert=True)
+    #    return
     # Проверяем, в очереди ли курьер
     is_in_queue = False
     with get_db() as conn:

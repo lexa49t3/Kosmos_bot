@@ -1090,7 +1090,7 @@ async def show_queue(c: CallbackQuery):
     all_rows = get_queue_and_lunching()
 
     if not all_rows:
-        text = "sstream пуста."
+        text = "Очередь пуста."
     else:
         # Разделяем очередь и обедающих
         queue_items = [row for row in all_rows if row['source'] == 'queue']
@@ -1115,7 +1115,7 @@ async def show_queue(c: CallbackQuery):
         if all_lines:
             text = "📋 *Текущая очередь и обед:* \n" + "\n".join(all_lines)
         else:
-            text = "sstream пуста."
+            text = "Очередь пуста."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]

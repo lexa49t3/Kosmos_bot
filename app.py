@@ -880,7 +880,7 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
         # Редактируем текущее сообщение (из которого нажали кнопку "Назад")
-         try:
+        try:
             await bot.edit_message_text(
                 chat_id=c.from_user.id,
                 message_id=c.message.message_id, # ID текущего сообщения

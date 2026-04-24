@@ -819,7 +819,7 @@ async def leave_btn(c: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")],
         [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
     ])
-     try:
+    try:
         await bot.edit_message_text(
             chat_id=c.from_user.id,
             message_id=c.message.message_id,

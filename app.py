@@ -877,7 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
          
          // Обнова
-    const CURRENT_VERSION = "3.4";
+    const CURRENT_VERSION = "3.5";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {
@@ -1105,7 +1105,7 @@ async def show_queue(c: CallbackQuery):
         for row in lunch_items:
             start_time = row["time_info"]
             elapsed = (datetime.now(start_time.tzinfo) - start_time).total_seconds()
-            remaining_seconds = max(0, 5 - elapsed) # 20 минут = 1200 секунд
+            remaining_seconds = max(0, 20 * 60 - elapsed) # 20 минут = 1200 секунд
             formatted_time = format_time_for_display(int(remaining_seconds))
             lunch_lines.append(f"- {row['name']} (обед, осталось {formatted_time})")
 
@@ -1193,10 +1193,10 @@ async def lunch_start_request(c: CallbackQuery, state: FSMContext):
         await c.answer("❌ Вы уже на обеде!", show_alert=True)
         return
     # Проверяем лимит обедов за день (2)
-    #lunch_count = get_lunch_count_today(tg_id)
-    #if lunch_count >= 2:
-    #    await c.answer("❌ Вы уже использовали обеды на сегодня (2 раза).", show_alert=True)
-    #    return
+    lunch_count = get_lunch_count_today(tg_id)
+    if lunch_count >= 2:
+        await c.answer("❌ Вы уже уходили на обеды сегодня (2 раза).", show_alert=True)
+        return
     # Проверяем, в очереди ли курьер
     is_in_queue = False
     with get_db() as conn:
@@ -1209,7 +1209,7 @@ async def lunch_start_request(c: CallbackQuery, state: FSMContext):
     if is_in_queue:
         confirmation_message += "⚠️ Вы покинете очередь.\n"
     confirmation_message += "⏱️ Обед длится 20 минут. После этого вы автоматически встанете в очередь\n"
-    confirmation_message += "За смену можно уходить на обед не более 2-х раз\n\n"
+    confirmation_message += "📌 За смену можно уходить на обед не более 2-х раз\n\n"
     confirmation_message += "Нажмите 'Да, уйти на обед' для подтверждения."
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Да, уйти на обед", callback_data="lunch_confirm_yes")],
@@ -1317,7 +1317,7 @@ async def lunch_end_manual(c: CallbackQuery):
 
 async def auto_return_from_lunch(session_id, tg_id, courier_name):
     """Фоновая задача, которая возвращает курьера в очередь через 20 минут."""
-    await asyncio.sleep(5) # 20 минут в секундах
+    await asyncio.sleep(20 * 60) # 20 минут в секундах
 
     # Проверяем, не завершена ли сессия вручную
     session_info = get_current_lunch_session(tg_id)
@@ -1368,7 +1368,7 @@ async def api_queue(request: Request) -> Response:
                 # row["time_info"] доступен благодаря изменению в get_lunching_couriers
                 start_time = row["time_info"]
                 elapsed = (datetime.now(start_time.tzinfo) - start_time).total_seconds()
-                remaining_seconds = max(0, 5 - elapsed) # 20 минут = 1200 секунд
+                remaining_seconds = max(0, 20 * 60 - elapsed) # 20 минут = 1200 секунд
                 item["remaining_seconds"] = int(remaining_seconds)
             # Не добавляем remaining_seconds для 'queue'
             response_data.append(item)

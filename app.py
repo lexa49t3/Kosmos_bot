@@ -207,16 +207,12 @@ def get_queue_and_lunching():
             """)
             queue_rows = cur.fetchall()
 
-            # Курьеры на обеде
-            lunching_rows = get_lunching_couriers()
-            # Добавляем признак источника
-            lunching_rows_with_source = [
-                {**row, 'source': 'lunch'} for row in lunching_rows
-            ]
+            # Курьеры на обеде (уже с 'time_info' и 'source' благодаря изменению в get_lunching_couriers)
+            lunching_rows = get_lunching_couriers() # <-- Теперь возвращает {'name', 'tg_id', 'time_info', 'source'}
 
     # Объединяем и сортируем: сначала очередь, потом обедающие
-    all_rows = queue_rows + lunching_rows_with_source
-    # Сортировка: сначала очередь, потом обедающие по времени начала обеда
+    all_rows = queue_rows + lunching_rows # <-- lunching_rows уже содержит 'time_info' и 'source'
+    # Сортировка: сначала очередь ('queue' == False, 'lunch' == True), потом обедающие по времени начала обеда
     all_rows.sort(key=lambda x: (x['source'] == 'lunch', x['time_info']))
     return all_rows
 
@@ -345,7 +341,19 @@ def get_lunching_couriers():
                 WHERE ls.end_time IS NULL
                 ORDER BY ls.start_time ASC -- Сортировка по времени начала
             """)
-            return cur.fetchall()
+            rows = cur.fetchall()
+            # Преобразуем результат, чтобы ключ start_time был под ключом time_info
+            # Это нужно, чтобы соответствовать структуре queue_rows в get_queue_and_lunching
+            formatted_rows = []
+            for row in rows:
+                formatted_row = {
+                    'name': row['name'],
+                    'tg_id': row['tg_id'],
+                    'time_info': row['start_time'], # <-- Вот тут
+                    'source': 'lunch'
+                }
+                formatted_rows.append(formatted_row)
+            return formatted_rows
 
 # === HTML шаблон для кассы ===
 CASHIER_HTML = """
@@ -487,26 +495,30 @@ CASHIER_HTML = """
                     const updateTimeEl = document.getElementById('update-time');
                     
                     if (data.length === 0) {
-                        list.innerHTML = '<li class="empty">sstream Очередь пуста</li>';
+                        list.innerHTML = '<li class="empty">Очередь пуста</li>';
                     } else {
                         // Разделяем очередь и обедающих
                         const queueItems = data.filter(item => item.source === 'queue');
                         const lunchItems = data.filter(item => item.source === 'lunch');
 
-                        // Генерируем HTML для очереди
-                        const queueHtml = queueItems.map((item, index) => 
+                       // Генерируем HTML для очереди (с кнопками)
+                    const queueHtml = queueItems.map((item, index) => 
                             `<li class="queue-item">
                                 <div class="number">${index + 1}</div>
                                 <div class="name">${item.name}</div>
+                                <button class="call-btn" onclick="callCourier(${item.tg_id})">Позвать</button>
+                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">Удалить</button>
                             </li>`
                         ).join('');
 
-                        // Генерируем HTML для обедающих
+                        // Генерируем HTML для обедающих (с кнопками)
                         const lunchHtml = lunchItems.map(item => 
                             `<li class="queue-item" style="background-color: #e0e0e0;"> <!-- Стиль для обедающего -->
                                 <div class="number">-</div>
                                 <div class="name">${item.name} (обед)</div>
                                 <div class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</div>
+                                <button class="call-btn" onclick="callCourier(${item.tg_id})">📞 Позвать</button>
+                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">❌ Удалить</button>
                             </li>`
                         ).join('');
 
@@ -1033,16 +1045,15 @@ async def api_queue(request: Request) -> Response:
         # Возвращаем список объектов с name, tg_id и source
         response_data = []
         for row in rows:
-            item = {"name": row["name"], "tg_id": row["tg_id"]}
+            item = {"name": row["name"], "tg_id": row["tg_id"], "source": row["source"]}
             if row["source"] == 'lunch':
                 # Добавляем признак обеда и оставшееся время (в секундах)
+                # row["time_info"] доступен благодаря изменению в get_lunching_couriers
                 start_time = row["time_info"]
                 elapsed = (datetime.now(start_time.tzinfo) - start_time).total_seconds()
                 remaining_seconds = max(0, 20 * 60 - elapsed) # 20 минут = 1200 секунд
-                item["source"] = "lunch"
                 item["remaining_seconds"] = int(remaining_seconds)
-            else:
-                item["source"] = "queue"
+            # Не добавляем remaining_seconds для 'queue'
             response_data.append(item)
 
         return web.json_response(response_data)

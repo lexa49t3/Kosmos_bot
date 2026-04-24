@@ -679,12 +679,14 @@ async def start(m: Message, state: FSMContext):
             user = cur.fetchone()
 
     if user:
+        # КНОПКА ОБЕД ДОБАВЛЕНА СЮДА
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
             [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
             [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
         ])
+        # Отправляем НОВОЕ сообщение с обновлённой клавиатурой
         await m.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
     else:
         await m.answer("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
@@ -713,7 +715,7 @@ async def process_name(m: Message, state: FSMContext):
         logger.error(f"Ошибка регистрации пользователя {m.from_user.id}: {e}")
 
 @dp.callback_query(F.data == "join")
-async def join_btn(c: CallbackQuery):
+async def join_btn(c: CallbackQuery, state: FSMContext): # Добавляем state
     tg_id = c.from_user.id
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -733,9 +735,24 @@ async def join_btn(c: CallbackQuery):
     log_action(tg_id, user['name'], "Встал в очередь")
     await c.answer(f"✅ Ты №{pos} в очереди!", show_alert=True)
 
+    # --- НОВОЕ: Отправляем обновлённое меню ---
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+        [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+        [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
+        [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+    ])
+    # Редактируем *текущее* сообщение (в котором была кнопка "Встать")
+    await bot.edit_message_text(
+        chat_id=c.from_user.id,
+        message_id=c.message.message_id,
+        text=f"Привет, {user['name']}! 👋\nВыбери действие:", # Используем имя из запроса выше
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
 @dp.callback_query(F.data == "leave")
-@dp.callback_query(F.data == "leave")
-async def leave_btn(c: CallbackQuery):
+async def leave_btn(c: CallbackQuery, state: FSMContext):
     tg_id = c.from_user.id
     # Получаем имя курьера заранее, чтобы использовать в логе
     with get_db() as conn:
@@ -743,7 +760,6 @@ async def leave_btn(c: CallbackQuery):
             cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (tg_id,))
             user = cur.fetchone()
             if not user:
-                # Если курьер не найден в таблице couriers, логировать нечего
                 await c.answer("❌ Произошла ошибка при выходе из очереди.", show_alert=True)
                 logger.error(f"Курьер {tg_id} не найден в таблице couriers при попытке выйти из очереди.")
                 return
@@ -763,6 +779,22 @@ async def leave_btn(c: CallbackQuery):
         log_action(tg_id, user['name'], "Вышел из очереди") # Передаём user['name']
 
     await c.answer("Ты вышел из очереди." if changed else "Тебя не было в очереди.", show_alert=True)
+
+    # --- НОВОЕ: Отправляем обновлённое меню ---
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+        [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+        [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
+        [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+    ])
+    # Редактируем *текущее* сообщение (в котором была кнопка "Выйти")
+    await bot.edit_message_text(
+        chat_id=c.from_user.id,
+        message_id=c.message.message_id,
+        text=f"Привет, {user['name']}! 👋\nВыбери действие:", # Используем имя из запроса выше
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
 
 # --- ИЗМЕНЕННЫЙ ХЕНДЛЕР show_queue (редактирует текущее сообщение) ---
 @dp.callback_query(F.data == "show_queue")
@@ -793,8 +825,6 @@ async def show_queue(c: CallbackQuery):
         await c.message.answer(text, parse_mode="Markdown", reply_markup=kb)
     await c.answer() # Ответим на callback
 
-# --- /ИЗМЕНЕННЫЙ ХЕНДЛЕР ---
-
 # --- ИЗМЕНЕННЫЙ ХЕНДЛЕР back_to_menu (редактирует текущее сообщение) ---
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(c: CallbackQuery, state: FSMContext):
@@ -805,6 +835,7 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
             user = cur.fetchone()
 
     if user:
+        # КНОПКА ОБЕД ДОБАВЛЕНА СЮДА
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
             [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
@@ -828,7 +859,6 @@ async def back_to_menu(c: CallbackQuery, state: FSMContext):
         await c.message.edit_text("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
     await c.answer() # Ответим на callback
-
 # --- /ИЗМЕНЕННЫЙ ХЕНДЛЕР ---
 
 # --- НОВЫЙ ХЕНДЛЕР ДЛЯ КНОПКИ ОБЕД ---

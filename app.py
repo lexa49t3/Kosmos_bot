@@ -6,7 +6,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -627,6 +627,48 @@ class ConfirmLunch(StatesGroup):
     waiting_for_confirmation = State()
 
 # === ХЕНДЛЕРЫ БОТА ===
+router = Router() # Создайте роутер или используйте dp
+
+@router.message(Command("menu", "refresh_menu")) # Добавляем команду /menu и /refresh_menu
+@router.callback_query(F.data == "refresh_main_menu") # Или кнопку "refresh_main_menu"
+async def send_refreshed_menu(event: Union[Message, CallbackQuery], state: FSMContext):
+    # Получаем информацию о пользователе
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM couriers WHERE tg_id = %s", (event.from_user.id,))
+            user = cur.fetchone()
+
+    if not user:
+        # Если пользователь не найден, возможно, нужно сбросить состояние и попросить регистрацию
+        await state.clear()
+        await event.message.answer("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
+        await state.set_state(Register.waiting_for_name)
+        return
+
+    # Создаём обновлённое меню
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+        [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+        [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # <-- Новая кнопка
+        [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+    ])
+
+    # Проверяем, какое событие вызвало функцию
+    if isinstance(event, Message):
+        # Если это команда, отправляем новое сообщение
+        await event.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
+    elif isinstance(event, CallbackQuery):
+        # Если это нажатие кнопки, сначала отвечаем на callback
+        await event.answer()
+        # Затем отправляем новое сообщение с меню
+        await event.message.answer(f"Привет, {user['name']}! 👋\nВыбери действие:", reply_markup=kb)
+
+# Не забудьте зарегистрировать роутер в диспетчере
+# dp.include_router(router) # Раскомментируйте, если используете роутеры
+
+# Или добавьте хендлер напрямую к dp
+dp.message(Command("menu", "refresh_menu"))(send_refreshed_menu)
+dp.callback_query(F.data == "refresh_main_menu")(send_refreshed_menu)
 @dp.message(Command("start"))
 async def start(m: Message, state: FSMContext):
     await state.clear()

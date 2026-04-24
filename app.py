@@ -90,14 +90,14 @@ def init_db():
                         FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
                     )
                 """)
-                # --- НОВАЯ ТАБЛИЦА ДЛЯ СЕАНСОВ ОБЕДА ---
+                # --- НОВАЯ ТАБЛИЦА ДЛЯ СЕАНСОВ ОБЕДА (исправленная) ---
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS lunch_sessions (
                         session_id SERIAL PRIMARY KEY,
                         tg_id BIGINT NOT NULL,
                         start_time TIMESTAMPTZ DEFAULT NOW(),
                         end_time TIMESTAMPTZ, -- NULL, если не закончен
-                        date DATE GENERATED ALWAYS AS (start_time::date) STORED, -- Для удобства фильтрации по дню
+                        date DATE DEFAULT CURRENT_DATE, -- Просто сохраняем дату начала сеанса
                         FOREIGN KEY (tg_id) REFERENCES couriers(tg_id) ON DELETE CASCADE
                     )
                 """)

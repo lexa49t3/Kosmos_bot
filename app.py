@@ -114,6 +114,12 @@ def init_db():
 init_db()
 
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+def format_time_for_display(seconds):
+    """Форматирует время в формате MM:SS для отображения в боте."""
+    mins = seconds // 60
+    secs = seconds % 60
+    return f"{mins:02}:{secs:02}"
+
 def add_to_queue(tg_id):
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -563,7 +569,7 @@ CASHIER_HTML = """
 
     .lunch-badge {
         display: inline-flex;
-        align-items: center;
+        align-items: baseline;
         gap: 6px;
         background: var(--lunch-bg);
         color: var(--lunch-text);
@@ -871,7 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
          
          // Обнова
-    const CURRENT_VERSION = "3.3";
+    const CURRENT_VERSION = "3.4";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {
@@ -1080,12 +1086,36 @@ async def leave_btn(c: CallbackQuery, state: FSMContext):
 # --- ИЗМЕНЕННЫЙ ХЕНДЛЕР show_queue (редактирует текущее сообщение) ---
 @dp.callback_query(F.data == "show_queue")
 async def show_queue(c: CallbackQuery):
-    rows = get_queue()
-    if not rows:
-        text = "Очередь пуста."
+    # Вместо get_queue(), используем get_queue_and_lunching()
+    all_rows = get_queue_and_lunching()
+
+    if not all_rows:
+        text = "sstream пуста."
     else:
-        lines = [f"{i+1}. {row['name']}" for i, row in enumerate(rows)]
-        text = "📋 *Текущая очередь:*\n" + "\n".join(lines)
+        # Разделяем очередь и обедающих
+        queue_items = [row for row in all_rows if row['source'] == 'queue']
+        lunch_items = [row for row in all_rows if row['source'] == 'lunch']
+
+        # Формируем строки для очереди
+        queue_lines = [f"{i+1}. {row['name']}" for i, row in enumerate(queue_items)]
+
+        # Формируем строки для обедающих
+        # Рассчитаем оставшееся время для обедающих вручную, как в api_queue
+        lunch_lines = []
+        for row in lunch_items:
+            start_time = row["time_info"]
+            elapsed = (datetime.now(start_time.tzinfo) - start_time).total_seconds()
+            remaining_seconds = max(0, 5 - elapsed) # 20 минут = 1200 секунд
+            formatted_time = format_time_for_display(int(remaining_seconds))
+            lunch_lines.append(f"- {row['name']} (обед, осталось {formatted_time})")
+
+        # Объединяем списки
+        all_lines = queue_lines + lunch_lines
+
+        if all_lines:
+            text = "📋 *Текущая очередь и обед:* \n" + "\n".join(all_lines)
+        else:
+            text = "sstream пуста."
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
@@ -1287,7 +1317,7 @@ async def lunch_end_manual(c: CallbackQuery):
 
 async def auto_return_from_lunch(session_id, tg_id, courier_name):
     """Фоновая задача, которая возвращает курьера в очередь через 20 минут."""
-    await asyncio.sleep(20 * 60) # 20 минут в секундах
+    await asyncio.sleep(5) # 20 минут в секундах
 
     # Проверяем, не завершена ли сессия вручную
     session_info = get_current_lunch_session(tg_id)
@@ -1338,7 +1368,7 @@ async def api_queue(request: Request) -> Response:
                 # row["time_info"] доступен благодаря изменению в get_lunching_couriers
                 start_time = row["time_info"]
                 elapsed = (datetime.now(start_time.tzinfo) - start_time).total_seconds()
-                remaining_seconds = max(0, 20 * 60 - elapsed) # 20 минут = 1200 секунд
+                remaining_seconds = max(0, 5 - elapsed) # 20 минут = 1200 секунд
                 item["remaining_seconds"] = int(remaining_seconds)
             # Не добавляем remaining_seconds для 'queue'
             response_data.append(item)

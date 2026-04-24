@@ -216,6 +216,18 @@ def get_queue_and_lunching():
     all_rows.sort(key=lambda x: (x['source'] == 'lunch', x['time_info']))
     return all_rows
 
+def get_queue():
+    """Получает только курьеров, находящихся в очереди."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.name, c.tg_id
+                FROM queue q
+                JOIN couriers c ON q.tg_id = c.tg_id
+                ORDER BY q.join_time
+            """)
+            return cur.fetchall()
+
 def get_queue_with_details():
     with get_db() as conn:
         with conn.cursor() as cur:

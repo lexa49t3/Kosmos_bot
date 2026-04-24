@@ -667,6 +667,16 @@ CASHIER_HTML = """
         setInterval(updateQueue, 5000);
         // Обновляем таймеры обеда чаще
         setInterval(updateLunchTimers, 1000);
+
+         // Автоматическое обновление при изменении версии
+    const CURRENT_VERSION = "20260425"; // Изменяйте эту строку при каждом деплое (год-месяц-число)
+    const savedVersion = localStorage.getItem('cashier_version');
+
+    if (savedVersion !== CURRENT_VERSION) {
+        localStorage.setItem('cashier_version', CURRENT_VERSION);
+        // Перезагрузка только при первом запуске новой версии
+        location.reload();
+    }
     </script>
 </body>
 </html>

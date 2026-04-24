@@ -669,7 +669,7 @@ CASHIER_HTML = """
         setInterval(updateLunchTimers, 1000);
 
          // Обнова
-    const CURRENT_VERSION = "1";
+    const CURRENT_VERSION = "2";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {
@@ -976,7 +976,8 @@ async def lunch_start_request(c: CallbackQuery, state: FSMContext):
     confirmation_message = f"🍽️ Вы хотите уйти на обед?\n\n"
     if is_in_queue:
         confirmation_message += "⚠️ Вы покинете очередь.\n"
-    confirmation_message += "⏱️ Обед длится 20 минут. После этого вы автоматически встанете в очередь.\n\n"
+    confirmation_message += "⏱️ Обед длится 20 минут. После этого вы автоматически встанете в очередь\n"
+    confirmation_message += "За смену можно уходить на обед не более 2-х раз\n\n"
     confirmation_message += "Нажмите 'Да, уйти на обед' для подтверждения."
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Да, уйти на обед", callback_data="lunch_confirm_yes")],
@@ -1037,9 +1038,28 @@ async def lunch_end_manual(c: CallbackQuery):
 
     session_info = get_current_lunch_session(tg_id)
     if not session_info:
-        await c.answer("❌ Вы не на обеде!", show_alert=True)
-        return
+        # Курьер не на обеде (возможно, уже автоматически вернулся)
+        # Всё равно отправим ему обновлённое меню
+        await c.answer("Вы уже не на обеде!", show_alert=True) # Уведомление
 
+        # Создаём обновлённое меню
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
+            [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
+            [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")], # Возвращаем кнопку обеда
+            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
+        ])
+        # Редактируем *текущее* сообщение (в котором была нажата кнопка "С обеда")
+        await bot.edit_message_text(
+            chat_id=c.from_user.id,
+            message_id=c.message.message_id,
+            text=f"Привет, {courier_name}! 👋\nВыбери действие:",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return # Завершаем выполнение функции здесь
+
+    # --- Старая логика для ручного завершения сессии ---
     session_id = session_info['session_id']
     ended = end_lunch_session(session_id, tg_id, courier_name)
 
@@ -1057,14 +1077,9 @@ async def lunch_end_manual(c: CallbackQuery):
         ])
         await c.message.edit_text(f"✅ Вы вернулись с обеда и встали в очередь. Ваша позиция: {pos}", reply_markup=kb)
     else:
-        # Сессия уже была завершена (например, автоматически)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Встать в очередь", callback_data="join")],
-            [InlineKeyboardButton(text="🚪 Выйти из очереди", callback_data="leave")],
-            [InlineKeyboardButton(text="🍽️ Обед", callback_data="lunch_start")],
-            [InlineKeyboardButton(text="📋 Список", callback_data="show_queue")]
-        ])
-        await c.message.edit_text("❌ Вы не на обеде!", reply_markup=kb)
+        # Сессия уже была завершена (например, автоматически) - это случай, который теперь обрабатывается в `if not session_info:`
+        # Логика выше уже сработает.
+        pass
 
     await c.answer()
 

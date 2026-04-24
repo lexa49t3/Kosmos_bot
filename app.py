@@ -45,6 +45,13 @@ WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = "courier_bot_secret_2025"
 
 # === БАЗА ===
+def get_db():
+    url = DATABASE_URL.replace("postgresql://", "postgres://")
+    try:
+        return psycopg2.connect(url, cursor_factory=RealDictCursor)
+    except Exception as e:
+        logger.error(f"Ошибка подключения к БД: {e}")
+        raise
 def init_db():
     try:
         with get_db() as conn:

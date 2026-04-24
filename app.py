@@ -467,7 +467,7 @@ CASHIER_HTML = """
 
     .header-right {
         display: flex;
-        flex-direction: column;
+        flex-direction: row-reverse;
         align-items: flex-end;
         gap: 8px;
     }
@@ -492,6 +492,7 @@ CASHIER_HTML = """
     }
 
     .theme-toggle {
+        padding: 0px 0px 2px 1px;
         width: 44px;
         height: 44px;
         border-radius: 50%;
@@ -723,24 +724,28 @@ CASHIER_HTML = """
                             `<li class="queue-item">
                                 <div class="number">${index + 1}</div>
                                 <div class="name">${item.name}</div>
-                                <button class="call-btn" onclick="callCourier(${item.tg_id})">Позвать</button>
-                                <button class="remove-btn" onclick="removeCourier(${item.tg_id})">Удалить</button>
+                                <div class="btn-group">
+                                    <button class="btn btn-call" onclick="callCourier(${item.tg_id})">Позвать</button>
+                                    <button class="btn btn-remove" onclick="removeCourier(${item.tg_id})">Удалить</button>
+                                </div>
                             </li>`
                         ).join('');
 
                         // Генерируем HTML для обедающих (с кнопками)
                         const lunchHtml = lunchItems.map(item => 
-    `<li class="queue-item"border-left: 4px solid #ffc107;">
-        <div class="number">-</div>
-        <div class="name">${item.name}</div>
-        <div class="lunch-badge">
-            <span>Обед</span>
-            <span class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</span>
-        </div>
-        <button class="call-btn" onclick="callCourier(${item.tg_id})">🐾</button>
-        <button class="remove-btn" onclick="removeCourier(${item.tg_id})">🗑️</button>
-    </li>`
-).join('');
+                    `<li class="queue-item lunching">
+                        <div class="number">-</div>
+                        <div class="name">${item.name}</div>
+                        <div class="lunch-badge">
+                            <span>Обед</span>
+                            <span class="lunch-timer" data-tg-id="${item.tg_id}">${formatTime(item.remaining_seconds)}</span>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-call" onclick="callCourier(${item.tg_id})">🐾</button>
+                            <button class="btn btn-remove" onclick="removeCourier(${item.tg_id})">🗑️</button>
+                        </div>
+                    </li>`
+                ).join('');
 
                         list.innerHTML = queueHtml + lunchHtml;
                     }
@@ -866,7 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
          
          // Обнова
-    const CURRENT_VERSION = "3";
+    const CURRENT_VERSION = "3.3";
     const savedVersion = localStorage.getItem('cashier_version');
 
     if (savedVersion !== CURRENT_VERSION) {

@@ -377,125 +377,196 @@ CASHIER_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Очередь</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #f5f5f5;
-            padding: 15px;
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        header {
-            text-align: center;
-            margin-bottom: 25px;
-            padding: 15px;
-            background: #d32f2f;
-            color: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-        h1 {
-            font-size: 1.6rem;
-            font-weight: 600;
-        }
-        .time {
-            font-size: 0.9rem;
-            opacity: 0.9;
-            margin-top: 4px;
-        }
-        .queue-list {
-            list-style: none;
-        }
-        .queue-item {
-            background: white;
-            margin-bottom: 12px;
-            padding: 16px;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            display: flex;
-            align-items: center;
-            font-size: 1.3rem;
-            font-weight: 500;
-        }
-        .number {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 42px;
-            height: 42px;
-            background: #e57373;
-            color: white;
-            border-radius: 50%;
-            margin-right: 16px;
-            font-size: 1.4rem;
-            flex-shrink: 0;
-        }
-        .name {
-            flex-grow: 1;
-        }
-        .remove-btn, .call-btn {
-            border: none;
-            border-radius: 8px;
-            padding: 8px 12px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 500;
-            transition: background-color 0.2s;
-            margin-left: 8px; /* Отступ между кнопками */
-        }
-        .remove-btn {
-            background: #f44336;
-            color: white;
-        }
-        .remove-btn:hover {
-            background: #d32f2f;
-        }
-        .call-btn {
-            background: #4caf50;
-            color: white;
-        }
-        .call-btn:hover {
-            background: #388e3c;
-        }
-        .empty {
-            text-align: center;
-            color: #757575;
-            font-size: 1.2rem;
-            padding: 40px 20px;
-        }
-        .last-update {
-            text-align: center;
-            color: #666;
-            font-size: 0.85rem;
-            margin-top: 20px;
-        }
-        .lunch-badge {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    background: #ffc107; /* Жёлтый (цвет обеда) */
-    color: #212529; /* Тёмный текст */
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    margin-right: 8px;
-}
+    :root {
+        /* Светлая тема по умолчанию */
+        --bg-color: #f5f5f5;
+        --container-bg: white;
+        --header-bg: #d32f2f;
+        --header-text: white;
+        --list-item-bg: white;
+        --list-item-text: #212529;
+        --number-bg: #e57373;
+        --number-text: white;
+        --remove-btn-bg: #f44336;
+        --remove-btn-hover: #d32f2f;
+        --remove-btn-text: white;
+        --call-btn-bg: #4caf50;
+        --call-btn-hover: #388e3c;
+        --call-btn-text: white;
+        --empty-text: #757575;
+        --last-update-text: #666;
+        --border-color: #ddd;
+        --lunch-badge-bg: #ffc107;
+        --lunch-badge-text: #212529;
+    }
 
-.lunch-badge span:first-child {
-    white-space: nowrap;
-}
+    /* Тёмная тема */
+    [data-theme="dark"] {
+        --bg-color: #121212;
+        --container-bg: #1e1e1e;
+        --header-bg: #b71c1c;
+        --header-text: #e0e0e0;
+        --list-item-bg: #2d2d2d;
+        --list-item-text: #e0e0e0;
+        --number-bg: #d32f2f;
+        --number-text: #f5f5f5;
+        --remove-btn-bg: #c62828;
+        --remove-btn-hover: #b71b1b;
+        --remove-btn-text: #f5f5f5;
+        --call-btn-bg: #2e7d32;
+        --call-btn-hover: #1b5e20;
+        --call-btn-text: #f5f5f5;
+        --empty-text: #aaaaaa;
+        --last-update-text: #aaaaaa;
+        --border-color: #444;
+        --lunch-badge-bg: #ff8f00;
+        --lunch-badge-text: #000000;
+    }
 
-.lunch-badge .lunch-timer {
-    background: rgba(0,0,0,0.1);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
-}
-    </style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: var(--bg-color);
+        padding: 15px;
+        min-height: 100vh;
+        color: var(--list-item-text); /* Цвет текста по умолчанию */
+    }
+
+    .container {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    header {
+        text-align: center;
+        margin-bottom: 25px;
+        padding: 15px;
+        background: var(--header-bg);
+        color: var(--header-text);
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+        font-size: 1.6rem;
+        font-weight: 600;
+    }
+
+    .time {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        margin-top: 4px;
+    }
+
+    .queue-list {
+        list-style: none;
+    }
+
+    .queue-item {
+        background: var(--list-item-bg);
+        margin-bottom: 12px;
+        padding: 16px;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        display: flex;
+        align-items: center;
+        font-size: 1.3rem;
+        font-weight: 500;
+        border: 1px solid var(--border-color); /* Добавим границу для контраста в темной теме */
+    }
+
+    .number {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        background: var(--number-bg);
+        color: var(--number-text);
+        border-radius: 50%;
+        margin-right: 16px;
+        font-size: 1.4rem;
+        flex-shrink: 0;
+    }
+
+    .name {
+        flex-grow: 1;
+    }
+
+    .remove-btn, .call-btn {
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 1rem;
+        font-weight: 500;
+        transition: background-color 0.2s;
+        margin-left: 8px; /* Отступ между кнопками */
+    }
+
+    .remove-btn {
+        background: var(--remove-btn-bg);
+        color: var(--remove-btn-text);
+    }
+
+    .remove-btn:hover {
+        background: var(--remove-btn-hover);
+    }
+
+    .call-btn {
+        background: var(--call-btn-bg);
+        color: var(--call-btn-text);
+    }
+
+    .call-btn:hover {
+        background: var(--call-btn-hover);
+    }
+
+    .empty {
+        text-align: center;
+        color: var(--empty-text);
+        font-size: 1.2rem;
+        padding: 40px 20px;
+    }
+
+    .last-update {
+        text-align: center;
+        color: var(--last-update-text);
+        font-size: 0.85rem;
+        margin-top: 20px;
+    }
+
+    /* Стили для бейджа обеда */
+    .lunch-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--lunch-badge-bg);
+        color: var(--lunch-badge-text);
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-right: 8px;
+    }
+
+    .lunch-badge span:first-child {
+        white-space: nowrap;
+    }
+
+    .lunch-badge .lunch-timer {
+        background: rgba(0,0,0,0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+    }
+
+</style>
 </head>
 <body>
     <div class="container">
@@ -668,6 +739,40 @@ CASHIER_HTML = """
         // Обновляем таймеры обеда чаще
         setInterval(updateLunchTimers, 1000);
 
+         function toggleTheme() {
+        const body = document.body;
+        const currentTheme = body.getAttribute('data-theme');
+        if (currentTheme === 'dark') {
+            body.setAttribute('data-theme', 'light');
+            localStorage.setItem('theme', 'light'); // Сохраняем предпочтение
+        } else {
+            body.setAttribute('data-theme', 'dark');
+            localStorage.setItem('theme', 'dark');
+        }
+    }
+
+    // Проверяем сохранённую тему при загрузке
+    document.addEventListener('DOMContentLoaded', () => {
+        const savedTheme = localStorage.getItem('theme') || 'light'; // По умолчанию светлая
+        document.body.setAttribute('data-theme', savedTheme);
+
+        // Создаём кнопку переключения темы и добавляем её в заголовок
+        const themeToggleBtn = document.createElement('button');
+        themeToggleBtn.type = 'button';
+        themeToggleBtn.textContent = savedTheme === 'dark' ? '☀️ Светлая' : '🌙 Тёмная';
+        themeToggleBtn.style.position = 'absolute';
+        themeToggleBtn.style.top = '10px';
+        themeToggleBtn.style.right = '10px';
+        themeToggleBtn.style.padding = '5px 10px';
+        themeToggleBtn.style.fontSize = '0.8rem';
+        themeToggleBtn.style.cursor = 'pointer';
+        themeToggleBtn.onclick = toggleTheme;
+
+        const header = document.querySelector('header');
+        header.style.position = 'relative'; // Убедимся, что позиционирование относительно заголовка
+        header.appendChild(themeToggleBtn);
+    });
+         
          // Обнова
     const CURRENT_VERSION = "2";
     const savedVersion = localStorage.getItem('cashier_version');

@@ -642,7 +642,7 @@ async def start(m: Message, state: FSMContext):
     else:
         await m.answer("👋 Добро пожаловать!\nПожалуйста, укажи своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(Register.waiting_for_name)
-ё1    
+
 @dp.message(Register.waiting_for_name)
 async def process_name(m: Message, state: FSMContext):
     name = m.text.strip()
